@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.interactivebrokers.com)",
+      "WebFetch(domain:interactivebrokers.github.io)",
+      "Bash(python -c \"from ibkr_eda import IBKR; print\\(''Import successful''\\); ib = IBKR.__init__.__doc__; print\\(''IBKR facade ready''\\)\")"
+    ]
+  }
+}
