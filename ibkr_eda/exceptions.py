@@ -1,4 +1,4 @@
-"""Custom exception hierarchy for IBKR Client Portal API errors."""
+"""Custom exception hierarchy for IBKR TWS API errors."""
 
 
 class IBKRError(Exception):
@@ -6,21 +6,20 @@ class IBKRError(Exception):
 
 
 class IBKRAuthError(IBKRError):
-    """Session not authenticated or expired."""
+    """Not authenticated or session expired."""
 
 
 class IBKRRateLimitError(IBKRError):
-    """Rate limit exceeded."""
+    """Rate limit / pacing violation."""
 
 
 class IBKRAPIError(IBKRError):
-    """API returned an error response."""
+    """TWS API returned an error."""
 
-    def __init__(self, status_code: int, message: str, url: str):
-        self.status_code = status_code
-        self.url = url
-        super().__init__(f"HTTP {status_code} from {url}: {message}")
+    def __init__(self, code: int, message: str):
+        self.code = code
+        super().__init__(f"TWS error {code}: {message}")
 
 
 class IBKRConnectionError(IBKRError):
-    """Cannot reach the Client Portal Gateway."""
+    """Cannot reach the IB Gateway."""

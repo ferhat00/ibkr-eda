@@ -3,7 +3,13 @@
     "allow": [
       "WebFetch(domain:www.interactivebrokers.com)",
       "WebFetch(domain:interactivebrokers.github.io)",
-      "Bash(python -c \"from ibkr_eda import IBKR; print\\(''Import successful''\\); ib = IBKR.__init__.__doc__; print\\(''IBKR facade ready''\\)\")"
+      "Bash(python -c \"from ibkr_eda import IBKR; print\\(''Import successful''\\); ib = IBKR.__init__.__doc__; print\\(''IBKR facade ready''\\)\")",
+      "Bash(python -c \"from ibkr_eda import IBKR, IBKRClient, IBKRConfig; print\\(''All imports OK''\\)\")",
+      "Bash(python -c \"from ibkr_eda import IBKR, IBKRClient, IBKRConfig; from ibkr_eda.utils.transformers import positions_to_df, trades_to_df, history_to_df, orders_to_df; from ibkr_eda.portfolio.accounts import Accounts; from ibkr_eda.portfolio.positions import Positions; from ibkr_eda.portfolio.pnl import PnL; from ibkr_eda.trades.orders import Orders; from ibkr_eda.trades.executions import Executions; from ibkr_eda.trades.transactions import Transactions; from ibkr_eda.contracts.search import ContractSearch; from ibkr_eda.contracts.details import ContractDetails; from ibkr_eda.market_data.snapshot import Snapshot; from ibkr_eda.market_data.history import History; from ibkr_eda.performance.analytics import Performance; print\\(''All imports OK''\\)\")",
+      "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(jupyter kernelspec list)",
+      "Bash(C:/Users/Ferhat/AppData/Local/Python/pythoncore-3.14-64/python.exe -c \"import ib_async; print\\(''OK''\\)\")",
+      "Bash(python -c \"from ibkr_eda import IBKR; print\\(''Import OK''\\)\")"
     ]
   }
 }

@@ -13,17 +13,14 @@ if TYPE_CHECKING:
 
 
 class Orders:
-    """Fetch order data from the IBKR Client Portal API."""
+    """Fetch order data via the TWS API."""
 
     def __init__(self, client: IBKRClient):
         self._client = client
 
-    def get_raw(self) -> list[dict]:
-        """Return raw orders JSON (open and recent)."""
-        resp = self._client.get("/iserver/account/orders")
-        if isinstance(resp, dict):
-            return resp.get("orders", [])
-        return resp
+    def get_raw(self) -> list:
+        """Return ib_async Trade objects for open orders."""
+        return self._client.ib.openTrades()
 
     def get(self) -> pd.DataFrame:
         """Return orders as a DataFrame."""

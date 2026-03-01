@@ -13,14 +13,14 @@ if TYPE_CHECKING:
 
 
 class Executions:
-    """Fetch trade execution data from the IBKR Client Portal API."""
+    """Fetch trade execution data via the TWS API."""
 
     def __init__(self, client: IBKRClient):
         self._client = client
 
-    def get_raw(self) -> list[dict]:
-        """Return raw trade executions JSON."""
-        return self._client.get("/iserver/account/trades")
+    def get_raw(self) -> list:
+        """Return ib_async Fill objects."""
+        return self._client.ib.fills()
 
     def get(self) -> pd.DataFrame:
         """Return trade executions as a DataFrame."""

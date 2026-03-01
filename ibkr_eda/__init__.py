@@ -4,12 +4,13 @@ Usage::
 
     from ibkr_eda import IBKR
 
-    ib = IBKR()
-    ib.keepalive()
+    ib = IBKR()  # auto-connects to IB Gateway
 
     positions = ib.positions.get()
     summary = ib.accounts.get_summary()
     history = ib.history.get(conid=265598, period="1y", bar="1d")
+
+    ib.disconnect()
 """
 
 from ibkr_eda.client import IBKRClient
@@ -30,12 +31,15 @@ from ibkr_eda.trades.transactions import Transactions
 class IBKR:
     """High-level facade — one object gives access to everything.
 
+    Automatically connects to IB Gateway on creation.
+
     Args:
         config: Optional IBKRConfig. If omitted, loads from .env / defaults.
     """
 
     def __init__(self, config: IBKRConfig | None = None):
         self.client = IBKRClient(config)
+        self.client.connect()
 
         # Portfolio
         self.accounts = Accounts(self.client)
@@ -59,16 +63,27 @@ class IBKR:
         self.performance = Performance(self.client)
 
     def status(self) -> dict:
-        """Check authentication status."""
-        return self.client.auth_status()
+        """Check connection status."""
+        return {
+            "connected": self.client.ib.isConnected(),
+            "accounts": self.client.ib.managedAccounts(),
+        }
+
+    def connect(self) -> None:
+        """Connect to IB Gateway (if not already connected)."""
+        self.client.connect()
+
+    def disconnect(self) -> None:
+        """Disconnect from IB Gateway."""
+        self.client.disconnect()
 
     def keepalive(self) -> None:
-        """Start background keepalive (calls /tickle every ~4 min)."""
-        self.client.start_keepalive()
+        """No-op. TWS connection is persistent. Kept for backward compatibility."""
+        pass
 
     def stop_keepalive(self) -> None:
-        """Stop background keepalive."""
-        self.client.stop_keepalive()
+        """Alias for disconnect(). Kept for backward compatibility."""
+        self.disconnect()
 
 
 __all__ = ["IBKR", "IBKRClient", "IBKRConfig"]

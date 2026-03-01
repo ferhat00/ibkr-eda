@@ -11,24 +11,37 @@ if TYPE_CHECKING:
 
 
 class ContractSearch:
-    """Search for contracts by symbol via the IBKR Client Portal API."""
+    """Search for contracts by symbol via the TWS API."""
 
     def __init__(self, client: IBKRClient):
         self._client = client
 
-    def search_raw(self, symbol: str, sec_type: str | None = None) -> list[dict]:
-        """Return raw contract search results JSON."""
-        body: dict = {"symbol": symbol}
+    def search_raw(self, symbol: str, sec_type: str | None = None) -> list:
+        """Return matching ContractDescription objects."""
+        descriptions = self._client.ib.reqMatchingSymbols(symbol)
+        if not descriptions:
+            return []
         if sec_type:
-            body["secType"] = sec_type
-        result = self._client.post("/iserver/secdef/search", json=body)
-        if isinstance(result, list):
-            return result
-        return result.get("results", result.get("data", []))
+            descriptions = [
+                d for d in descriptions
+                if d.contract.secType == sec_type
+            ]
+        return descriptions
 
     def search(self, symbol: str, sec_type: str | None = None) -> pd.DataFrame:
         """Search for contracts by symbol and return as a DataFrame."""
         raw = self.search_raw(symbol, sec_type)
         if not raw:
             return pd.DataFrame()
-        return pd.json_normalize(raw)
+        rows = []
+        for desc in raw:
+            c = desc.contract
+            rows.append({
+                "conid": c.conId,
+                "symbol": c.symbol,
+                "secType": c.secType,
+                "primaryExchange": c.primaryExchange,
+                "currency": c.currency,
+                "derivativeSecTypes": ", ".join(desc.derivativeSecTypes) if desc.derivativeSecTypes else "",
+            })
+        return pd.DataFrame(rows)

@@ -11,55 +11,64 @@ if TYPE_CHECKING:
 
 
 class Accounts:
-    """Access account-level data from the IBKR Client Portal API."""
+    """Access account-level data via the TWS API."""
 
     def __init__(self, client: IBKRClient):
         self._client = client
 
     def list_accounts(self) -> list[dict]:
-        """Return all linked accounts (read-only, no brokerage session needed)."""
-        return self._client.get("/portfolio/accounts")
+        """Return all managed accounts."""
+        accounts = self._client.ib.managedAccounts()
+        return [{"accountId": a} for a in accounts]
 
-    def get_summary_raw(self, account_id: str | None = None) -> dict:
-        """Return raw account summary JSON."""
+    def get_summary_raw(self, account_id: str | None = None) -> list:
+        """Return raw account summary (list of AccountValue objects)."""
         acct = account_id or self._client.account_id
-        return self._client.get(f"/portfolio/{acct}/summary")
+        return self._client.ib.accountSummary(acct)
 
     def get_summary(self, account_id: str | None = None) -> pd.DataFrame:
         """Return account summary as a DataFrame (one row per metric)."""
         raw = self.get_summary_raw(account_id)
+        if not raw:
+            return pd.DataFrame()
         rows = []
-        for key, val in raw.items():
-            if isinstance(val, dict):
-                rows.append({"metric": key, **val})
-            else:
-                rows.append({"metric": key, "amount": val})
+        for av in raw:
+            rows.append({
+                "metric": av.tag,
+                "amount": av.value,
+                "currency": av.currency,
+            })
         return pd.DataFrame(rows)
 
-    def get_allocation_raw(self, account_id: str | None = None) -> dict:
-        """Return raw asset allocation JSON."""
-        acct = account_id or self._client.account_id
-        return self._client.get(f"/portfolio/{acct}/allocation")
-
     def get_allocation(self, account_id: str | None = None) -> dict[str, pd.DataFrame]:
-        """Return asset allocation as a dict of DataFrames by category.
+        """Return asset allocation computed from current positions.
 
-        Keys typically include 'assetClass', 'sector', 'group'.
+        Returns a dict with key 'assetClass' mapping to a DataFrame
+        with columns: name, direction, weight.
         """
-        raw = self.get_allocation_raw(account_id)
-        result = {}
-        for category, data in raw.items():
-            if isinstance(data, dict) and data:
-                # Each category is {long: {...}, short: {...}}
-                rows = []
-                for direction, values in data.items():
-                    if isinstance(values, dict):
-                        for name, weight in values.items():
-                            rows.append({
-                                "name": name,
-                                "direction": direction,
-                                "weight": weight,
-                            })
-                if rows:
-                    result[category] = pd.DataFrame(rows)
-        return result
+        acct = account_id or self._client.account_id
+        all_positions = self._client.ib.positions()
+        positions = [p for p in all_positions if p.account == acct]
+
+        if not positions:
+            return {}
+
+        # Group by asset class (secType)
+        totals: dict[str, float] = {}
+        for p in positions:
+            sec_type = p.contract.secType
+            value = abs(p.position * p.avgCost)
+            totals[sec_type] = totals.get(sec_type, 0.0) + value
+
+        grand_total = sum(totals.values())
+        if grand_total == 0:
+            return {}
+
+        rows = []
+        for name, value in totals.items():
+            rows.append({
+                "name": name,
+                "direction": "long",
+                "weight": value / grand_total,
+            })
+        return {"assetClass": pd.DataFrame(rows)}

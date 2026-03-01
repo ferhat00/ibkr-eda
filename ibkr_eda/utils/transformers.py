@@ -1,86 +1,89 @@
-"""Helpers for transforming IBKR API JSON responses into pandas DataFrames."""
+"""Helpers for transforming ib_async objects into pandas DataFrames."""
 
 from __future__ import annotations
 
 import pandas as pd
 
 
-# ── Column rename maps ───────────────────────────────────────────────
-
-_POSITION_COLUMNS = {
-    "conid": "contract_id",
-    "contractDesc": "description",
-    "assetClass": "asset_class",
-    "mktValue": "market_value",
-    "unrealizedPnl": "unrealized_pnl",
-    "realizedPnl": "realized_pnl",
-    "avgCost": "avg_cost",
-    "avgPrice": "avg_price",
-    "position": "quantity",
-    "currency": "currency",
-    "ticker": "ticker",
-    "listingExchange": "exchange",
-}
-
-_TRADE_COLUMNS = {
-    "conid": "contract_id",
-    "conidEx": "contract_id_ex",
-    "execution_id": "execution_id",
-    "symbol": "symbol",
-    "side": "side",
-    "size": "quantity",
-    "price": "price",
-    "order_ref": "order_ref",
-    "account": "account_id",
-    "exchange": "exchange",
-    "net_amount": "net_amount",
-    "commission": "commission",
-    "realized_pnl": "realized_pnl",
-    "trade_time_r": "trade_time_epoch",
-    "trade_time": "trade_time",
-}
-
-
-# ── Transformer functions ────────────────────────────────────────────
-
-def positions_to_df(raw: list[dict]) -> pd.DataFrame:
-    """Convert raw positions JSON to a clean DataFrame."""
-    df = pd.json_normalize(raw)
-    df.rename(
-        columns={k: v for k, v in _POSITION_COLUMNS.items() if k in df.columns},
-        inplace=True,
-    )
-    return df
-
-
-def trades_to_df(raw: list[dict]) -> pd.DataFrame:
-    """Convert raw trades/executions JSON to a clean DataFrame."""
-    df = pd.json_normalize(raw)
-    df.rename(
-        columns={k: v for k, v in _TRADE_COLUMNS.items() if k in df.columns},
-        inplace=True,
-    )
-    return df
-
-
-def history_to_df(raw: dict) -> pd.DataFrame:
-    """Convert raw historical market data JSON to a DataFrame with timestamps."""
-    data = raw.get("data", [])
-    if not data:
+def positions_to_df(positions: list) -> pd.DataFrame:
+    """Convert ib_async Position objects to a DataFrame."""
+    if not positions:
         return pd.DataFrame()
-    df = pd.DataFrame(data)
-    if "t" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["t"], unit="ms")
-        df.rename(
-            columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"},
-            inplace=True,
-        )
-        df.drop(columns=["t"], inplace=True, errors="ignore")
+    rows = []
+    for p in positions:
+        rows.append({
+            "contract_id": p.contract.conId,
+            "description": p.contract.localSymbol or p.contract.symbol,
+            "asset_class": p.contract.secType,
+            "quantity": p.position,
+            "avg_cost": p.avgCost,
+            "currency": p.contract.currency,
+            "ticker": p.contract.symbol,
+            "exchange": p.contract.primaryExchange or p.contract.exchange,
+            "account_id": p.account,
+        })
+    return pd.DataFrame(rows)
+
+
+def trades_to_df(fills: list) -> pd.DataFrame:
+    """Convert ib_async Fill objects to a DataFrame."""
+    if not fills:
+        return pd.DataFrame()
+    rows = []
+    for f in fills:
+        rows.append({
+            "contract_id": f.contract.conId,
+            "execution_id": f.execution.execId,
+            "symbol": f.contract.symbol,
+            "side": f.execution.side,
+            "quantity": f.execution.shares,
+            "price": f.execution.price,
+            "order_ref": f.execution.orderRef,
+            "account_id": f.execution.acctNumber,
+            "exchange": f.execution.exchange,
+            "commission": f.commissionReport.commission if f.commissionReport else None,
+            "realized_pnl": f.commissionReport.realizedPNL if f.commissionReport else None,
+            "trade_time": str(f.execution.time),
+        })
+    return pd.DataFrame(rows)
+
+
+def history_to_df(bars: list) -> pd.DataFrame:
+    """Convert ib_async BarData objects to a DataFrame."""
+    if not bars:
+        return pd.DataFrame()
+    rows = []
+    for b in bars:
+        rows.append({
+            "timestamp": b.date,
+            "open": b.open,
+            "high": b.high,
+            "low": b.low,
+            "close": b.close,
+            "volume": b.volume,
+        })
+    df = pd.DataFrame(rows)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
     return df
 
 
-def orders_to_df(raw: list[dict]) -> pd.DataFrame:
-    """Convert raw orders JSON to a DataFrame."""
-    if not raw:
+def orders_to_df(trades: list) -> pd.DataFrame:
+    """Convert ib_async Trade objects to a DataFrame."""
+    if not trades:
         return pd.DataFrame()
-    return pd.json_normalize(raw)
+    rows = []
+    for t in trades:
+        rows.append({
+            "orderId": t.order.orderId,
+            "conid": t.contract.conId,
+            "symbol": t.contract.symbol,
+            "action": t.order.action,
+            "totalQuantity": t.order.totalQuantity,
+            "orderType": t.order.orderType,
+            "lmtPrice": t.order.lmtPrice,
+            "status": t.orderStatus.status,
+            "filled": t.orderStatus.filled,
+            "remaining": t.orderStatus.remaining,
+            "avgFillPrice": t.orderStatus.avgFillPrice,
+        })
+    return pd.DataFrame(rows)

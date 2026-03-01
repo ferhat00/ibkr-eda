@@ -4,15 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ibkr-eda"
-version = "0.1.0"
-description = "Exploratory data analysis toolkit for Interactive Brokers via Client Portal API"
+version = "0.2.0"
+description = "Exploratory data analysis toolkit for Interactive Brokers via TWS API"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 dependencies = [
-    "requests>=2.31,<3",
+    "ib_async>=2.0",
     "pandas>=2.1,<3",
     "python-dotenv>=1.0,<2",
-    "urllib3>=2.0,<3",
 ]
 
 [project.optional-dependencies]
@@ -21,7 +20,6 @@ dev = [
     "matplotlib>=3.8",
     "pytest>=8.0",
     "pytest-mock>=3.12",
-    "responses>=0.25",
 ]
 dashboard = [
     "flask>=3.0",

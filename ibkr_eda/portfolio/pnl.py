@@ -11,28 +11,28 @@ if TYPE_CHECKING:
 
 
 class PnL:
-    """Fetch profit & loss data from the IBKR Client Portal API."""
+    """Fetch profit & loss data via the TWS API."""
 
     def __init__(self, client: IBKRClient):
         self._client = client
 
-    def get_raw(self) -> dict:
-        """Return raw partitioned PnL JSON."""
-        return self._client.get("/iserver/account/pnl/partitioned")
+    def get_raw(self) -> object:
+        """Return raw ib_async PnL object."""
+        acct = self._client.account_id
+        pnl = self._client.ib.reqPnL(acct)
+        self._client.ib.sleep(1)  # wait for data to arrive
+        self._client.ib.cancelPnL(pnl)
+        return pnl
 
     def get(self) -> pd.DataFrame:
-        """Return partitioned PnL as a DataFrame.
-
-        The API returns PnL partitioned by account and sub-account.
-        This flattens it into a single DataFrame.
-        """
-        raw = self.get_raw()
-        rows = []
-        for acct_id, acct_data in raw.items():
-            if isinstance(acct_data, dict):
-                row = {"account_id": acct_id}
-                row.update(acct_data)
-                rows.append(row)
-        if not rows:
-            return pd.DataFrame()
-        return pd.json_normalize(rows)
+        """Return P&L as a DataFrame."""
+        acct = self._client.account_id
+        pnl = self._client.ib.reqPnL(acct)
+        self._client.ib.sleep(1)
+        self._client.ib.cancelPnL(pnl)
+        return pd.DataFrame([{
+            "account_id": acct,
+            "dailyPnL": pnl.dailyPnL,
+            "unrealizedPnL": pnl.unrealizedPnL,
+            "realizedPnL": pnl.realizedPnL,
+        }])
