@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from ib_async import Contract
@@ -20,6 +21,26 @@ class ContractDetails:
         """Return contract details for a given conid."""
         contract = Contract(conId=conid)
         details_list = self._client.ib.reqContractDetails(contract)
+        if not details_list:
+            return {}
+        d = details_list[0]
+        return {
+            "conid": d.contract.conId,
+            "symbol": d.contract.symbol,
+            "secType": d.contract.secType,
+            "exchange": d.contract.exchange,
+            "currency": d.contract.currency,
+            "localSymbol": d.contract.localSymbol,
+            "longName": d.longName,
+            "category": d.category,
+            "industry": d.industry,
+            "minTick": d.minTick,
+        }
+
+    async def get_async(self, conid: int) -> dict:
+        """Return contract details for a given conid (async, for Jupyter / Python 3.14+)."""
+        contract = Contract(conId=conid)
+        details_list = await asyncio.ensure_future(self._client.ib.reqContractDetailsAsync(contract))
         if not details_list:
             return {}
         d = details_list[0]

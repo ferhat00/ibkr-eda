@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -36,6 +37,18 @@ class Transactions:
         filt = ExecutionFilter(acctCode=acct)
         return self._client.ib.reqExecutions(filt)
 
+    async def get_raw_async(
+        self,
+        account_ids: list[str] | None = None,
+        conids: list[int] | None = None,
+        currency: str = "USD",
+        days: int = 7,
+    ) -> list:
+        """Return ib_async Fill objects (async, for Jupyter / Python 3.14+)."""
+        acct = (account_ids or [self._client.account_id])[0]
+        filt = ExecutionFilter(acctCode=acct)
+        return await asyncio.ensure_future(self._client.ib.reqExecutionsAsync(filt))
+
     def get(
         self,
         account_ids: list[str] | None = None,
@@ -45,6 +58,19 @@ class Transactions:
     ) -> pd.DataFrame:
         """Return transaction history as a DataFrame."""
         raw = self.get_raw(account_ids, conids, currency, days)
+        if not raw:
+            return pd.DataFrame()
+        return trades_to_df(raw)
+
+    async def get_async(
+        self,
+        account_ids: list[str] | None = None,
+        conids: list[int] | None = None,
+        currency: str = "USD",
+        days: int = 7,
+    ) -> pd.DataFrame:
+        """Return transaction history as a DataFrame (async, for Jupyter / Python 3.14+)."""
+        raw = await self.get_raw_async(account_ids, conids, currency, days)
         if not raw:
             return pd.DataFrame()
         return trades_to_df(raw)

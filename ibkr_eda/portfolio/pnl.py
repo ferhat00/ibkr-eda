@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -29,6 +30,19 @@ class PnL:
         acct = self._client.account_id
         pnl = self._client.ib.reqPnL(acct)
         self._client.ib.sleep(1)
+        self._client.ib.cancelPnL(pnl)
+        return pd.DataFrame([{
+            "account_id": acct,
+            "dailyPnL": pnl.dailyPnL,
+            "unrealizedPnL": pnl.unrealizedPnL,
+            "realizedPnL": pnl.realizedPnL,
+        }])
+
+    async def get_async(self) -> pd.DataFrame:
+        """Return P&L as a DataFrame (async, for Jupyter / Python 3.14+)."""
+        acct = self._client.account_id
+        pnl = self._client.ib.reqPnL(acct)
+        await asyncio.sleep(1)
         self._client.ib.cancelPnL(pnl)
         return pd.DataFrame([{
             "account_id": acct,

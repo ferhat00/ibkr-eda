@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -70,6 +71,27 @@ class History:
             useRTH=not outside_rth,
         )
 
+    async def get_raw_async(
+        self,
+        conid: int,
+        period: str = "1y",
+        bar: str = "1d",
+        outside_rth: bool = False,
+    ) -> list:
+        """Return raw ib_async BarData objects (async, for Jupyter / Python 3.14+)."""
+        contract = Contract(conId=conid)
+        await asyncio.ensure_future(self._client.ib.qualifyContractsAsync(contract))
+        duration = _PERIOD_MAP.get(period, period)
+        bar_size = _BAR_MAP.get(bar, bar)
+        return await asyncio.ensure_future(self._client.ib.reqHistoricalDataAsync(
+            contract,
+            endDateTime="",
+            durationStr=duration,
+            barSizeSetting=bar_size,
+            whatToShow="TRADES",
+            useRTH=not outside_rth,
+        ))
+
     def get(
         self,
         conid: int,
@@ -81,4 +103,15 @@ class History:
         timestamp, open, high, low, close, volume.
         """
         raw = self.get_raw(conid, period, bar, outside_rth)
+        return history_to_df(raw)
+
+    async def get_async(
+        self,
+        conid: int,
+        period: str = "1y",
+        bar: str = "1d",
+        outside_rth: bool = False,
+    ) -> pd.DataFrame:
+        """Return historical bars as a DataFrame (async, for Jupyter / Python 3.14+)."""
+        raw = await self.get_raw_async(conid, period, bar, outside_rth)
         return history_to_df(raw)

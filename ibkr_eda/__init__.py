@@ -35,12 +35,20 @@ class IBKR:
 
     Args:
         config: Optional IBKRConfig. If omitted, loads from .env / defaults.
+        auto_connect: Set to False to skip auto-connect (use ``create_async`` instead).
+
+    For Jupyter / Python 3.14+, use the async factory instead::
+
+        ib = await IBKR.create_async()
     """
 
-    def __init__(self, config: IBKRConfig | None = None):
+    def __init__(self, config: IBKRConfig | None = None, auto_connect: bool = True):
         self.client = IBKRClient(config)
-        self.client.connect()
+        self._init_modules()
+        if auto_connect:
+            self.client.connect()
 
+    def _init_modules(self) -> None:
         # Portfolio
         self.accounts = Accounts(self.client)
         self.positions = Positions(self.client)
@@ -61,6 +69,18 @@ class IBKR:
 
         # Performance
         self.performance = Performance(self.client)
+
+    @classmethod
+    async def create_async(cls, config: IBKRConfig | None = None) -> "IBKR":
+        """Create and connect to IB Gateway (async, for Jupyter / Python 3.14+).
+
+        Usage::
+
+            ib = await IBKR.create_async()
+        """
+        instance = cls(config, auto_connect=False)
+        await instance.client.connect_async()
+        return instance
 
     def status(self) -> dict:
         """Check connection status."""

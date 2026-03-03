@@ -9,7 +9,8 @@
       "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
       "Bash(jupyter kernelspec list)",
       "Bash(C:/Users/Ferhat/AppData/Local/Python/pythoncore-3.14-64/python.exe -c \"import ib_async; print\\(''OK''\\)\")",
-      "Bash(python -c \"from ibkr_eda import IBKR; print\\(''Import OK''\\)\")"
+      "Bash(python -c \"from ibkr_eda import IBKR; print\\(''Import OK''\\)\")",
+      "Bash(python -c \"import ib_async.util as u; import inspect; print\\(inspect.getsource\\(u.patchAsyncio\\)\\)\")"
     ]
   }
 }
