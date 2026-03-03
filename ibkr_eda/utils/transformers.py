@@ -35,6 +35,8 @@ def trades_to_df(fills: list) -> pd.DataFrame:
             "contract_id": f.contract.conId,
             "execution_id": f.execution.execId,
             "symbol": f.contract.symbol,
+            "sec_type": f.contract.secType,
+            "currency": f.contract.currency,
             "side": f.execution.side,
             "quantity": f.execution.shares,
             "price": f.execution.price,
