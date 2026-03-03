@@ -23,10 +23,14 @@ dev = [
 ]
 dashboard = [
     "flask>=3.0",
+    "numpy>=1.24",
 ]
 flex = [
     "ibflex>=0.9",
 ]
+
+[project.scripts]
+ibkr-dashboard = "ibkr_eda.dashboard.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["ibkr_eda*"]

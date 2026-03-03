@@ -1,1 +1,245 @@
 # ibkr-eda
+
+Exploratory data analysis toolkit for Interactive Brokers — featuring a professional trade dashboard and a Python package for accessing IBKR data via TWS and the Flex Web Service.
+
+## Features
+
+- **Trade Dashboard** — interactive Flask web app for portfolio-level trade analysis with filters, charts, and performance metrics
+- **Flex Web Service** — fetch years of execution history without a live IB Gateway connection
+- **TWS API** — live executions, open orders, positions, P&L, market data, and contract search via `ib_async`
+
+---
+
+## Requirements
+
+- Python 3.11+
+- Interactive Brokers account
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/your-username/ibkr-eda.git
+cd ibkr-eda
+
+# Core package only
+pip install -e .
+
+# With dashboard support
+pip install -e ".[dashboard]"
+
+# With Flex Web Service support
+pip install -e ".[flex]"
+
+# Everything
+pip install -e ".[dashboard,flex,dev]"
+```
+
+---
+
+## Configuration
+
+Create a `.env` file in the project root:
+
+```env
+# TWS / IB Gateway (required for live data)
+IBKR_TWS_HOST=127.0.0.1
+IBKR_TWS_PORT=4002          # 4002 = paper, 4001 = live
+IBKR_TWS_CLIENT_ID=1
+IBKR_ACCOUNT_ID=U1234567    # optional; auto-detected if omitted
+
+# Flex Web Service (required for dashboard live fetch and long history)
+IBKR_FLEX_TOKEN=your_token_here
+IBKR_FLEX_QUERY_ID=your_query_id_here
+```
+
+### Setting up Flex Web Service credentials
+
+1. Log in to [IBKR Account Management](https://www.interactivebrokers.com/sso/Login)
+2. Go to **Reports → Flex Queries → Create → Activity Flex Query**
+   - Section: **Trades**, detail level: **Executions**, output: **XML**, delivery: **Web Service**
+   - Note the **Query ID**
+3. Go to **Reports → Settings → FlexWeb Service → Generate Token**
+   - Note the **Token**
+4. Add both values to your `.env` file
+
+---
+
+## Trade Dashboard
+
+The dashboard provides an interactive portfolio analysis interface running locally in your browser.
+
+### Start the dashboard
+
+```bash
+# Load from the local CSV (auto-detected from data/)
+python -m ibkr_eda.dashboard
+
+# Fetch live data from IBKR Flex Web Service (requires credentials in .env)
+python -m ibkr_eda.dashboard --source live
+
+# Custom options
+python -m ibkr_eda.dashboard --port 8080 --debug
+python -m ibkr_eda.dashboard --csv data/trades_U1234567.csv
+```
+
+Then open **http://127.0.0.1:5050** in your browser.
+
+If you installed with `pip install -e ".[dashboard]"`, you can also use the shorthand:
+
+```bash
+ibkr-dashboard
+ibkr-dashboard --source live
+```
+
+### Dashboard sections
+
+| Section | Description |
+|---|---|
+| **Summary cards** | Total P&L, Win Rate, Profit Factor, Sharpe Ratio, Max Drawdown, Total Trades |
+| **Cumulative P&L & Drawdown** | Equity curve with high-water mark and drawdown panel |
+| **P&L Distribution** | Histogram of per-trade realized P&L, winners vs losers |
+| **P&L by Symbol** | Horizontal bar chart — toggle between P&L and trade count |
+| **Time Patterns** | Activity and P&L broken down by hour of day, day of week, and month |
+| **Market Breakdown** | Country, currency, and security type split (donut charts) |
+| **Commission Analysis** | Distribution histogram and top 15 symbols by commission paid |
+| **Trade History** | Sortable, paginated table with all executions |
+
+### Filters
+
+The sidebar provides dynamic filters applied across all charts simultaneously:
+
+- **Date range** — start and end date pickers
+- **Asset class** — Equities, FX/Cash, etc.
+- **Market / Country** — US, UK, HK, DE, FX, and more (derived from exchange)
+- **Currency** — USD, HKD, GBP, etc.
+- **Exchange** — individual venue selection (advanced)
+- **Symbol** — substring search with autocomplete
+- **Side** — BUY / SELL
+
+### Data sources
+
+The dashboard sidebar has a toggle to switch between:
+
+- **Local CSV** — reads `data/trades_*.csv` (auto-detected). Fast, works offline.
+- **Live Flex** — fetches fresh data directly from IBKR. Requires Flex credentials in `.env`.
+
+Click **Reload Data** after switching sources.
+
+### Saving trade data locally
+
+Run the fetch notebook to download and persist trade history:
+
+```bash
+jupyter notebook notebooks/01_trade_eda.ipynb
+```
+
+The notebook fetches via Flex, merges with any existing CSV, deduplicates on `execution_id`, and saves to `data/trades_<account_id>.csv`.
+
+---
+
+## Python Package
+
+### Flex Web Service (no live connection required)
+
+```python
+from ibkr_eda.config import IBKRConfig
+from ibkr_eda.trades.flex import FlexTrades
+
+config = IBKRConfig.from_env()
+flex = FlexTrades(config)
+
+df = flex.get(account_id="U1234567", start_date="2025-01-01")
+print(df.head())
+```
+
+### TWS API (requires IB Gateway or TWS running)
+
+```python
+from ibkr_eda import IBKR
+
+ib = IBKR()                              # connects synchronously
+
+# Positions
+positions = ib.positions.get()
+
+# Recent executions (~7 days)
+executions = ib.executions.get()
+
+# Account P&L
+pnl = ib.pnl.get()
+
+# Market data
+snap = ib.snapshot.get(conids=[265598])  # AAPL
+
+# Historical bars
+history = ib.history.get(conid=265598, period="1m", bar="1d")
+```
+
+### Async usage (Jupyter / Python 3.14+)
+
+```python
+from ibkr_eda import IBKR
+
+ib = await IBKR.create_async()
+positions = await ib.positions.get_async()
+```
+
+---
+
+## Data Schema
+
+The `FlexTrades.get()` DataFrame and the CSV files share this schema:
+
+| Column | Type | Description |
+|---|---|---|
+| `execution_id` | int | Unique IBKR execution ID |
+| `contract_id` | int | IBKR contract ID (conid) |
+| `symbol` | str | Ticker symbol |
+| `sec_type` | str | `STK`, `CASH`, `OPT`, `FUT`, etc. |
+| `currency` | str | Settlement currency |
+| `side` | str | `BUY` or `SELL` |
+| `quantity` | float | Shares/units (negative for sells) |
+| `price` | float | Execution price |
+| `order_ref` | str | Optional client order reference |
+| `account_id` | str | IBKR account number |
+| `exchange` | str | Executing venue |
+| `commission` | float | Commission paid (positive) |
+| `realized_pnl` | float | FIFO realized P&L for this fill |
+| `trade_time` | datetime | UTC execution timestamp |
+
+---
+
+## Project Structure
+
+```
+ibkr-eda/
+├── data/                        # Local trade CSVs (gitignored)
+├── notebooks/
+│   ├── 00_connection_test.ipynb # TWS connectivity smoke-test
+│   └── 01_trade_eda.ipynb       # Full EDA: fetch, persist, and analyse
+└── ibkr_eda/
+    ├── dashboard/               # Flask trade dashboard
+    │   ├── app.py               # Flask app factory + API routes
+    │   ├── data_loader.py       # CSV/Flex loading, derived columns
+    │   ├── metrics.py           # Performance metric computations
+    │   ├── templates/           # Jinja2 HTML templates
+    │   └── static/              # JavaScript (dashboard.js)
+    ├── trades/
+    │   ├── flex.py              # FlexTrades — Flex Web Service
+    │   ├── executions.py        # Recent executions via TWS
+    │   └── orders.py            # Open orders via TWS
+    ├── portfolio/
+    │   ├── accounts.py          # Account list and summary
+    │   ├── positions.py         # Current holdings
+    │   └── pnl.py               # Daily / unrealized / realized P&L
+    ├── market_data/
+    │   ├── history.py           # OHLCV bars
+    │   └── snapshot.py          # Real-time quotes
+    ├── contracts/
+    │   ├── search.py            # Symbol search
+    │   └── details.py           # Contract metadata
+    ├── config.py                # IBKRConfig (reads from .env)
+    └── exceptions.py            # Exception hierarchy
+```

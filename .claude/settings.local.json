@@ -17,7 +17,12 @@
       "Bash(.venv/Scripts/python -c \"import ibflex; print\\(ibflex.__version__\\)\")",
       "Bash(.venv/Scripts/python -c \"from ibflex.Types import Trade; print\\([k for k in Trade.__annotations__]\\)\")",
       "Bash(.venv/Scripts/python -c \"import ibflex.parser as p; import inspect; src = inspect.getsource\\(p\\); print\\(src[:3000]\\)\")",
-      "Bash(.venv/Scripts/python -c \"from ibflex.enums import OrderType; print\\(list\\(OrderType\\)\\)\")"
+      "Bash(.venv/Scripts/python -c \"from ibflex.enums import OrderType; print\\(list\\(OrderType\\)\\)\")",
+      "Bash(python3 -c \":*)",
+      "Bash(pip install -e \".[dashboard]\")",
+      "Bash(python -m pip install -e \".[dashboard]\")",
+      "Bash(python -c \":*)",
+      "Bash(timeout 8 python -m ibkr_eda.dashboard --debug)"
     ]
   }
 }

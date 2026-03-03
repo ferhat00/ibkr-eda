@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block sidebar %}
+<!-- Data Source -->
+<div class="mb-3">
+  <div class="filter-label">Data Source</div>
+  <div class="d-flex gap-3 mb-2">
+    <div class="form-check form-check-inline">
+      <input class="form-check-input" type="radio" name="data_source" id="src-csv" value="csv" checked>
+      <label class="form-check-label" for="src-csv">Local CSV</label>
+    </div>
+    <div class="form-check form-check-inline">
+      <input class="form-check-input" type="radio" name="data_source" id="src-live" value="live">
+      <label class="form-check-label" for="src-live">Live Flex</label>
+    </div>
+  </div>
+  <button id="btn-reload" class="btn btn-sm btn-primary w-100">
+    <span id="reload-text">Reload Data</span>
+    <span id="reload-spinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+  </button>
+</div>
+
+<hr class="border-secondary my-2">
+
+<!-- Date Range -->
+<div class="mb-3">
+  <div class="filter-label">Date Range</div>
+  <input type="date" id="filter-start" class="form-control form-control-sm mb-1">
+  <input type="date" id="filter-end" class="form-control form-control-sm">
+</div>
+
+<!-- Asset Class / sec_type -->
+<div class="mb-3">
+  <div class="filter-label">Asset Class</div>
+  <div id="filter-sec-type" class="filter-group"></div>
+</div>
+
+<!-- Country -->
+<div class="mb-3">
+  <div class="filter-label">Market / Country</div>
+  <div id="filter-country" class="filter-group"></div>
+</div>
+
+<!-- Currency -->
+<div class="mb-3">
+  <div class="filter-label">Currency</div>
+  <div id="filter-currency" class="filter-group"></div>
+</div>
+
+<!-- Exchange (collapsed) -->
+<div class="mb-3">
+  <div class="accordion" id="exchange-accordion">
+    <div class="accordion-item" style="background: transparent; border: none;">
+      <h2 class="accordion-header">
+        <button class="accordion-button collapsed p-0" type="button"
+                data-bs-toggle="collapse" data-bs-target="#exchange-body"
+                style="background: transparent; box-shadow: none; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #8b949e;">
+          Exchange (Advanced)
+        </button>
+      </h2>
+      <div id="exchange-body" class="accordion-collapse collapse">
+        <div id="filter-exchange" class="filter-group mt-1"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Symbol -->
+<div class="mb-3">
+  <div class="filter-label">Symbol</div>
+  <input type="text" id="filter-symbol" class="form-control form-control-sm"
+         placeholder="e.g. NVDA" list="symbol-list" autocomplete="off">
+  <datalist id="symbol-list"></datalist>
+</div>
+
+<!-- Side -->
+<div class="mb-3">
+  <div class="filter-label">Side</div>
+  <div id="filter-side"></div>
+</div>
+
+<button id="btn-apply" class="btn btn-sm btn-success w-100 mb-1">Apply Filters</button>
+<button id="btn-reset" class="btn btn-sm btn-outline-secondary w-100">Reset</button>
+{% endblock %}
+
+{% block content %}
+<!-- Summary Cards -->
+<div class="row g-3 mb-4" id="summary-cards">
+  <div class="col-lg-2 col-md-4 col-6">
+    <div class="card metric-card">
+      <div class="metric-value" id="mc-pnl">--</div>
+      <div class="metric-label">Total P&L</div>
+      <div class="metric-sub" id="mc-pnl-sub"></div>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-4 col-6">
+    <div class="card metric-card">
+      <div class="metric-value" id="mc-winrate">--</div>
+      <div class="metric-label">Win Rate</div>
+      <div class="metric-sub" id="mc-winrate-sub"></div>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-4 col-6">
+    <div class="card metric-card">
+      <div class="metric-value" id="mc-pf">--</div>
+      <div class="metric-label">Profit Factor</div>
+      <div class="metric-sub" id="mc-pf-sub"></div>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-4 col-6">
+    <div class="card metric-card">
+      <div class="metric-value" id="mc-sharpe">--</div>
+      <div class="metric-label">Sharpe Ratio</div>
+      <div class="metric-sub" id="mc-sharpe-sub"></div>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-4 col-6">
+    <div class="card metric-card">
+      <div class="metric-value" id="mc-dd">--</div>
+      <div class="metric-label">Max Drawdown</div>
+      <div class="metric-sub" id="mc-dd-sub"></div>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-4 col-6">
+    <div class="card metric-card">
+      <div class="metric-value" id="mc-trades">--</div>
+      <div class="metric-label">Total Trades</div>
+      <div class="metric-sub" id="mc-trades-sub"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Cumulative P&L + Drawdown -->
+<div class="row mb-4">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header">Cumulative P&L & Drawdown</div>
+      <div class="card-body p-0"><div id="chart-cum-pnl" style="height:380px"><div class="loading-spinner">Loading...</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- P&L Distribution + Symbol Breakdown -->
+<div class="row mb-4">
+  <div class="col-md-5">
+    <div class="card h-100">
+      <div class="card-header">P&L Distribution</div>
+      <div class="card-body p-0"><div id="chart-pnl-dist" style="height:320px"><div class="loading-spinner">Loading...</div></div></div>
+    </div>
+  </div>
+  <div class="col-md-7">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        P&L by Symbol
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary active" id="sym-btn-pnl" onclick="switchSymbolView('pnl')">By P&L</button>
+          <button class="btn btn-outline-secondary" id="sym-btn-count" onclick="switchSymbolView('count')">By Count</button>
+        </div>
+      </div>
+      <div class="card-body p-0"><div id="chart-symbol" style="min-height:320px"><div class="loading-spinner">Loading...</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Time Patterns -->
+<div class="row mb-4">
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header">By Hour of Day (UTC)</div>
+      <div class="card-body p-0"><div id="chart-hour" style="height:280px"><div class="loading-spinner">Loading...</div></div></div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header">By Day of Week</div>
+      <div class="card-body p-0"><div id="chart-weekday" style="height:280px"><div class="loading-spinner">Loading...</div></div></div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header">Monthly P&L</div>
+      <div class="card-body p-0"><div id="chart-month" style="height:280px"><div class="loading-spinner">Loading...</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Market Breakdown -->
+<div class="row mb-4">
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header">By Country</div>
+      <div class="card-body p-0"><div id="chart-country" style="height:300px"><div class="loading-spinner">Loading...</div></div></div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header">By Currency</div>
+      <div class="card-body p-0"><div id="chart-currency" style="height:300px"><div class="loading-spinner">Loading...</div></div></div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header">By Security Type</div>
+      <div class="card-body p-0"><div id="chart-sec-type" style="height:300px"><div class="loading-spinner">Loading...</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Commission Analysis -->
+<div class="row mb-4">
+  <div class="col-md-5">
+    <div class="card h-100">
+      <div class="card-header">Commission Distribution</div>
+      <div class="card-body p-0"><div id="chart-comm-dist" style="height:280px"><div class="loading-spinner">Loading...</div></div></div>
+    </div>
+  </div>
+  <div class="col-md-7">
+    <div class="card h-100">
+      <div class="card-header">Commission by Symbol (Top 15)</div>
+      <div class="card-body p-0"><div id="chart-comm-sym" style="height:280px"><div class="loading-spinner">Loading...</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Trade Table -->
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    Trade History
+    <span id="table-row-count" class="badge bg-secondary">0 rows</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover table-dark mb-0" id="trade-table">
+        <thead id="table-head"></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+    <div id="table-pagination" class="p-2 d-flex justify-content-between align-items-center"></div>
+  </div>
+</div>
+{% endblock %}
