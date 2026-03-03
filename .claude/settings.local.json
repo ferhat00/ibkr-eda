@@ -10,7 +10,14 @@
       "Bash(jupyter kernelspec list)",
       "Bash(C:/Users/Ferhat/AppData/Local/Python/pythoncore-3.14-64/python.exe -c \"import ib_async; print\\(''OK''\\)\")",
       "Bash(python -c \"from ibkr_eda import IBKR; print\\(''Import OK''\\)\")",
-      "Bash(python -c \"import ib_async.util as u; import inspect; print\\(inspect.getsource\\(u.patchAsyncio\\)\\)\")"
+      "Bash(python -c \"import ib_async.util as u; import inspect; print\\(inspect.getsource\\(u.patchAsyncio\\)\\)\")",
+      "WebFetch(domain:github.com)",
+      "Bash(.venv/Scripts/pip install ibflex)",
+      "Bash(.venv/Scripts/python -c \":*)",
+      "Bash(.venv/Scripts/python -c \"import ibflex; print\\(ibflex.__version__\\)\")",
+      "Bash(.venv/Scripts/python -c \"from ibflex.Types import Trade; print\\([k for k in Trade.__annotations__]\\)\")",
+      "Bash(.venv/Scripts/python -c \"import ibflex.parser as p; import inspect; src = inspect.getsource\\(p\\); print\\(src[:3000]\\)\")",
+      "Bash(.venv/Scripts/python -c \"from ibflex.enums import OrderType; print\\(list\\(OrderType\\)\\)\")"
     ]
   }
 }

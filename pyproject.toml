@@ -24,6 +24,9 @@ dev = [
 dashboard = [
     "flask>=3.0",
 ]
+flex = [
+    "ibflex>=0.9",
+]
 
 [tool.setuptools.packages.find]
 include = ["ibkr_eda*"]

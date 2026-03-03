@@ -24,6 +24,7 @@ from ibkr_eda.portfolio.accounts import Accounts
 from ibkr_eda.portfolio.pnl import PnL
 from ibkr_eda.portfolio.positions import Positions
 from ibkr_eda.trades.executions import Executions
+from ibkr_eda.trades.flex import FlexTrades
 from ibkr_eda.trades.orders import Orders
 from ibkr_eda.trades.transactions import Transactions
 
@@ -58,6 +59,13 @@ class IBKR:
         self.orders = Orders(self.client)
         self.executions = Executions(self.client)
         self.transactions = Transactions(self.client)
+
+        # Long-history via Flex Web Service (no TWS connection required)
+        cfg = self.client.config
+        if cfg.flex_token and cfg.flex_query_id:
+            self.flex_trades: FlexTrades | None = FlexTrades(cfg)
+        else:
+            self.flex_trades = None
 
         # Market data
         self.snapshot = Snapshot(self.client)

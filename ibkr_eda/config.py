@@ -17,6 +17,8 @@ class IBKRConfig:
     client_id: int = 1
     timeout: int = 15  # connection timeout in seconds
     account_id: str | None = None
+    flex_token: str | None = None      # Flex Web Service access token
+    flex_query_id: str | None = None   # Flex Query template ID
 
     @classmethod
     def from_env(cls, dotenv_path: str | None = None) -> IBKRConfig:
@@ -28,4 +30,6 @@ class IBKRConfig:
             client_id=int(os.getenv("IBKR_TWS_CLIENT_ID", str(cls.client_id))),
             timeout=int(os.getenv("IBKR_TIMEOUT", str(cls.timeout))),
             account_id=os.getenv("IBKR_ACCOUNT_ID") or None,
+            flex_token=os.getenv("IBKR_FLEX_TOKEN") or None,
+            flex_query_id=os.getenv("IBKR_FLEX_QUERY_ID") or None,
         )
