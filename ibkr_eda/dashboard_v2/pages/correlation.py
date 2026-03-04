@@ -44,7 +44,7 @@ def update_correlation(data_loaded, filters):
         return empty, [], None
 
     try:
-        from ibkr_eda.dashboard_v2.pages.overview import _apply_filters
+        from ibkr_eda.dashboard_v2.data.loader import apply_filters
         from ibkr_eda.dashboard_v2.data.loader import load_stock_trades
         from ibkr_eda.dashboard_v2.data.position_reconstructor import reconstruct_daily_positions
         from ibkr_eda.dashboard_v2.data.price_fetcher import fetch_prices
@@ -54,7 +54,7 @@ def update_correlation(data_loaded, filters):
             compute_correlation_matrix, compute_rolling_correlation,
         )
 
-        trades = _apply_filters(load_stock_trades(), filters)
+        trades = apply_filters(load_stock_trades(), filters)
         positions = reconstruct_daily_positions(trades)
         if positions.empty:
             return empty, [], None
@@ -116,7 +116,7 @@ def update_rolling_corr(pair, data_loaded, filters):
         return empty
 
     try:
-        from ibkr_eda.dashboard_v2.pages.overview import _apply_filters
+        from ibkr_eda.dashboard_v2.data.loader import apply_filters
         from ibkr_eda.dashboard_v2.data.loader import load_stock_trades
         from ibkr_eda.dashboard_v2.data.position_reconstructor import reconstruct_daily_positions
         from ibkr_eda.dashboard_v2.data.price_fetcher import fetch_prices
@@ -124,7 +124,7 @@ def update_rolling_corr(pair, data_loaded, filters):
         from ibkr_eda.dashboard_v2.data.portfolio_valuation import compute_asset_returns
         from ibkr_eda.dashboard_v2.analytics.correlation import compute_rolling_correlation
 
-        trades = _apply_filters(load_stock_trades(), filters)
+        trades = apply_filters(load_stock_trades(), filters)
         positions = reconstruct_daily_positions(trades)
         if positions.empty:
             return empty

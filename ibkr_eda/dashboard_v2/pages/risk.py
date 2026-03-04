@@ -72,7 +72,7 @@ def update_risk(data_loaded, filters):
         return empty, empty, empty, "", empty, ""
 
     try:
-        from ibkr_eda.dashboard_v2.pages.overview import _apply_filters
+        from ibkr_eda.dashboard_v2.data.loader import apply_filters
         from ibkr_eda.dashboard_v2.data.loader import load_stock_trades
         from ibkr_eda.dashboard_v2.data.position_reconstructor import reconstruct_daily_positions
         from ibkr_eda.dashboard_v2.data.price_fetcher import fetch_prices
@@ -82,7 +82,7 @@ def update_risk(data_loaded, filters):
         from ibkr_eda.dashboard_v2.analytics.drawdown import compute_underwater, compute_top_drawdowns
         from ibkr_eda.dashboard_v2.analytics.monte_carlo import simulate
 
-        trades = _apply_filters(load_stock_trades(), filters)
+        trades = apply_filters(load_stock_trades(), filters)
         positions = reconstruct_daily_positions(trades)
         if positions.empty:
             return empty, empty, empty, "No data", empty, ""
@@ -147,7 +147,7 @@ def update_risk(data_loaded, filters):
             for col in ["start", "trough", "end"]:
                 top_dd[col] = top_dd[col].astype(str).str[:10]
             dd_table = dbc.Table.from_dataframe(
-                top_dd, striped=True, bordered=True, hover=True, dark=True, size="sm",
+                top_dd, striped=True, bordered=True, hover=True, color="dark", size="sm",
             )
         else:
             dd_table = html.P("No drawdown periods found.")

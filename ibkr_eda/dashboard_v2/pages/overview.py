@@ -67,10 +67,10 @@ def update_overview(data_loaded, filters):
     from ibkr_eda.dashboard_v2.analytics.returns_metrics import (
         compute_metrics_table, compute_cumulative_returns,
     )
+    from ibkr_eda.dashboard_v2.data.loader import apply_filters
 
     try:
-        trades = load_stock_trades()
-        trades = _apply_filters(trades, filters)
+        trades = apply_filters(load_stock_trades(), filters)
 
         positions = reconstruct_daily_positions(trades)
         if positions.empty:
@@ -138,7 +138,7 @@ def update_overview(data_loaded, filters):
         metrics_df = compute_metrics_table(port_returns, bench)
         table = dbc.Table.from_dataframe(
             metrics_df.reset_index().rename(columns={"index": "Metric"}),
-            striped=True, bordered=True, hover=True, dark=True, size="sm",
+            striped=True, bordered=True, hover=True, color="dark", size="sm",
         )
 
         return cards, fig, table
@@ -149,16 +149,3 @@ def update_overview(data_loaded, filters):
         return [], empty_fig, html.P(f"Error: {e}", className="text-danger")
 
 
-def _apply_filters(trades, filters):
-    """Apply global filters to trade data."""
-    if not filters:
-        return trades
-    if filters.get("start_date"):
-        trades = trades[trades["trade_time"] >= filters["start_date"]]
-    if filters.get("end_date"):
-        trades = trades[trades["trade_time"] <= filters["end_date"]]
-    if filters.get("tickers"):
-        trades = trades[trades["symbol"].isin(filters["tickers"])]
-    if filters.get("countries"):
-        trades = trades[trades["country"].isin(filters["countries"])]
-    return trades

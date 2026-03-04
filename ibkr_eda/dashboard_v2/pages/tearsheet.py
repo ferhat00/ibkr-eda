@@ -56,7 +56,7 @@ def update_tearsheet(data_loaded, filters):
 
     try:
         import pandas as pd
-        from ibkr_eda.dashboard_v2.pages.overview import _apply_filters
+        from ibkr_eda.dashboard_v2.data.loader import apply_filters
         from ibkr_eda.dashboard_v2.data.loader import load_stock_trades
         from ibkr_eda.dashboard_v2.data.position_reconstructor import reconstruct_daily_positions
         from ibkr_eda.dashboard_v2.data.price_fetcher import fetch_prices
@@ -65,7 +65,7 @@ def update_tearsheet(data_loaded, filters):
         from ibkr_eda.dashboard_v2.data.benchmark import fetch_benchmark_returns
         from ibkr_eda.dashboard_v2.analytics.pyfolio_bridge import compute_tearsheet_stats
 
-        trades = _apply_filters(load_stock_trades(), filters)
+        trades = apply_filters(load_stock_trades(), filters)
         positions = reconstruct_daily_positions(trades)
         if positions.empty:
             return "No data", "", empty, empty
@@ -93,7 +93,7 @@ def update_tearsheet(data_loaded, filters):
                 columns=["Metric", "Value"],
             )
             perf_table = dbc.Table.from_dataframe(
-                perf_df, striped=True, bordered=True, hover=True, dark=True, size="sm",
+                perf_df, striped=True, bordered=True, hover=True, color="dark", size="sm",
             )
         else:
             perf_table = html.P("pyfolio stats unavailable")
@@ -102,7 +102,7 @@ def update_tearsheet(data_loaded, filters):
         if stats.get("drawdown_table"):
             dd_df = pd.DataFrame(stats["drawdown_table"])
             dd_table = dbc.Table.from_dataframe(
-                dd_df, striped=True, bordered=True, hover=True, dark=True, size="sm",
+                dd_df, striped=True, bordered=True, hover=True, color="dark", size="sm",
             )
         else:
             dd_table = html.P("No drawdown data")

@@ -62,7 +62,7 @@ def update_frontier(data_loaded, filters):
         return empty
 
     try:
-        from ibkr_eda.dashboard_v2.pages.overview import _apply_filters
+        from ibkr_eda.dashboard_v2.data.loader import apply_filters
         from ibkr_eda.dashboard_v2.data.loader import load_stock_trades
         from ibkr_eda.dashboard_v2.data.position_reconstructor import reconstruct_daily_positions
         from ibkr_eda.dashboard_v2.data.price_fetcher import fetch_prices
@@ -70,7 +70,7 @@ def update_frontier(data_loaded, filters):
         from ibkr_eda.dashboard_v2.data.portfolio_valuation import compute_asset_returns
         from ibkr_eda.dashboard_v2.analytics.optimization import compute_efficient_frontier
 
-        trades = _apply_filters(load_stock_trades(), filters)
+        trades = apply_filters(load_stock_trades(), filters)
         positions = reconstruct_daily_positions(trades)
         if positions.empty:
             return empty
@@ -155,7 +155,7 @@ def update_opt_details(port_type, data_loaded, filters):
         return empty, empty, ""
 
     try:
-        from ibkr_eda.dashboard_v2.pages.overview import _apply_filters
+        from ibkr_eda.dashboard_v2.data.loader import apply_filters
         from ibkr_eda.dashboard_v2.data.loader import load_stock_trades
         from ibkr_eda.dashboard_v2.data.position_reconstructor import reconstruct_daily_positions
         from ibkr_eda.dashboard_v2.data.price_fetcher import fetch_prices
@@ -164,7 +164,7 @@ def update_opt_details(port_type, data_loaded, filters):
         from ibkr_eda.dashboard_v2.analytics.optimization import compute_efficient_frontier
         from ibkr_eda.dashboard_v2.analytics.risk_contribution import compute_risk_contribution
 
-        trades = _apply_filters(load_stock_trades(), filters)
+        trades = apply_filters(load_stock_trades(), filters)
         positions = reconstruct_daily_positions(trades)
         if positions.empty:
             return empty, empty, "No data"

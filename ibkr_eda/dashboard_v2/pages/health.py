@@ -58,7 +58,7 @@ def update_health(data_loaded, filters):
     try:
         import numpy as np
         import pandas as pd
-        from ibkr_eda.dashboard_v2.pages.overview import _apply_filters
+        from ibkr_eda.dashboard_v2.data.loader import apply_filters
         from ibkr_eda.dashboard_v2.data.loader import load_stock_trades
         from ibkr_eda.dashboard_v2.data.position_reconstructor import reconstruct_daily_positions
         from ibkr_eda.dashboard_v2.data.price_fetcher import fetch_prices
@@ -68,7 +68,7 @@ def update_health(data_loaded, filters):
         )
         from ibkr_eda.dashboard_v2.analytics.drawdown import compute_underwater
 
-        trades = _apply_filters(load_stock_trades(), filters)
+        trades = apply_filters(load_stock_trades(), filters)
         positions = reconstruct_daily_positions(trades)
         if positions.empty:
             return "No data", "", empty, empty

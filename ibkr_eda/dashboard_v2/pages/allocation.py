@@ -61,14 +61,13 @@ def update_allocation(data_loaded, filters):
     try:
         import pandas as pd
         import numpy as np
-        from ibkr_eda.dashboard_v2.data.loader import load_stock_trades
+        from ibkr_eda.dashboard_v2.data.loader import load_stock_trades, apply_filters
         from ibkr_eda.dashboard_v2.data.position_reconstructor import reconstruct_daily_positions
         from ibkr_eda.dashboard_v2.data.price_fetcher import fetch_prices, fetch_sector_info
         from ibkr_eda.dashboard_v2.data.fx_fetcher import fetch_fx_rates
         from ibkr_eda.dashboard_v2.data.portfolio_valuation import compute_asset_weights
 
-        trades = load_stock_trades()
-        trades = _apply_filters(trades, filters)
+        trades = apply_filters(load_stock_trades(), filters)
         positions = reconstruct_daily_positions(trades)
 
         if positions.empty:
@@ -159,17 +158,3 @@ def update_allocation(data_loaded, filters):
     except Exception as e:
         empty.add_annotation(text=str(e), showarrow=False)
         return empty, empty, empty, empty
-
-
-def _apply_filters(trades, filters):
-    if not filters:
-        return trades
-    if filters.get("start_date"):
-        trades = trades[trades["trade_time"] >= filters["start_date"]]
-    if filters.get("end_date"):
-        trades = trades[trades["trade_time"] <= filters["end_date"]]
-    if filters.get("tickers"):
-        trades = trades[trades["symbol"].isin(filters["tickers"])]
-    if filters.get("countries"):
-        trades = trades[trades["country"].isin(filters["countries"])]
-    return trades
