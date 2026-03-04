@@ -22,7 +22,20 @@
       "Bash(pip install -e \".[dashboard]\")",
       "Bash(python -m pip install -e \".[dashboard]\")",
       "Bash(python -c \":*)",
-      "Bash(timeout 8 python -m ibkr_eda.dashboard --debug)"
+      "Bash(timeout 8 python -m ibkr_eda.dashboard --debug)",
+      "Bash(pip install -e \".[dashboard-v2]\")",
+      "Bash(python -m pip install -e \".[dashboard-v2]\")",
+      "Bash(timeout 8 python -m ibkr_eda.dashboard_v2 --port 5051 --debug)",
+      "Bash(python -c \"import dash_bootstrap_components\")",
+      "Bash(python -m pip show dash-bootstrap-components)",
+      "Bash(where python)",
+      "Bash(/c/Users/Ferhat/AppData/Local/Python/pythoncore-3.12-64/python.exe -m pip show dash-bootstrap-components)",
+      "Bash(/c/Users/Ferhat/AppData/Local/Python/pythoncore-3.12-64/python.exe -m pip install -e \".[dashboard-v2]\")",
+      "Bash(/c/Users/Ferhat/AppData/Local/Python/pythoncore-3.12-64/python.exe -c \":*)",
+      "Bash(.venv/Scripts/python.exe -m pip show dash-bootstrap-components)",
+      "Bash(.venv/Scripts/python.exe -m pip show dash)",
+      "Bash(.venv/Scripts/python.exe -m pip install -e \".[dashboard-v2]\")",
+      "Bash(timeout 8 .venv/Scripts/python.exe -m ibkr_eda.dashboard_v2 --port 5051)"
     ]
   }
 }

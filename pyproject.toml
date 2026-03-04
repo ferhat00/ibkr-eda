@@ -28,9 +28,23 @@ dashboard = [
 flex = [
     "ibflex>=0.9",
 ]
+dashboard-v2 = [
+    "dash>=2.14",
+    "dash-bootstrap-components>=1.5",
+    "plotly>=5.18",
+    "yfinance>=0.2.31",
+    "scipy>=1.11",
+    "statsmodels>=0.14",
+    "requests>=2.28",
+    "numpy>=1.24",
+    "pyarrow>=14.0",
+    "pyfolio-reloaded>=0.9",
+    "riskfolio-lib>=6.0",
+]
 
 [project.scripts]
 ibkr-dashboard = "ibkr_eda.dashboard.__main__:main"
+ibkr-dashboard-v2 = "ibkr_eda.dashboard_v2.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["ibkr_eda*"]
