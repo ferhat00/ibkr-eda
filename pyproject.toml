@@ -31,6 +31,12 @@ flex = [
 options = [
     "yfinance>=0.2.30",
 ]
+hedge = [
+    "yfinance>=0.2.30",
+    "ipywidgets>=8.0",
+    "plotly>=5.18",
+    "numpy>=1.24",
+]
 dashboard-v2 = [
     "dash>=2.14",
     "dash-bootstrap-components>=1.5",

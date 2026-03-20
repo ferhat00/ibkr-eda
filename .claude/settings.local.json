@@ -43,7 +43,9 @@
       "Bash(python -c \"from ibkr_eda.utils.transformers import option_quotes_to_df; from ibkr_eda.options.provider import OptionQuote; q = OptionQuote\\(symbol=''SPY'', expiry=''20260417'', strike=500.0, right=''C'', implied_vol=0.15, delta=0.5\\); df = option_quotes_to_df\\([q]\\); print\\(''transformer OK''\\); print\\(df[[''symbol'',''strike'',''right'',''implied_vol'',''delta'']]\\)\")",
       "Bash(python -c \"from ibkr_eda.exceptions import IBKROptionsError; print\\(''exceptions OK''\\); from ibkr_eda.config import IBKRConfig; c = IBKRConfig\\(\\); print\\(f''config OK: cache_ttl={c.options_cache_ttl}, tradier={c.tradier_token}''\\)\")",
       "Bash(python -c \"from ibkr_eda.options.fallback_provider import FallbackOptionsProvider; p = FallbackOptionsProvider\\(\\); exps = p.get_expirations\\(''SPY''\\); print\\(f''Fallback OK: SPY has {len\\(exps\\)} expiries''\\); print\\(''Nearest 5:'', exps[:5]\\)\")",
-      "Bash(python -m pytest --tb=short)"
+      "Bash(python -m pytest --tb=short)",
+      "Bash(grep -r \"HHI\\\\|hhi\\\\|Herfindahl\" /c/Users/Ferhat/Documents/GitHub/ibkr-eda/ibkr_eda/dashboard_v2 --include=*.py)",
+      "Bash(python -c \"from ibkr_eda.hedging import VIXData, ScenarioEngine, HedgeAdvisor, estimate_portfolio_beta; print\\(''All imports OK''\\)\")"
     ]
   }
 }
