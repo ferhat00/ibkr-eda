@@ -19,6 +19,9 @@ from ibkr_eda.contracts.details import ContractDetails
 from ibkr_eda.contracts.search import ContractSearch
 from ibkr_eda.market_data.history import History
 from ibkr_eda.market_data.snapshot import Snapshot
+from ibkr_eda.options.chain import OptionChains
+from ibkr_eda.options.greeks import Greeks
+from ibkr_eda.options.surface import VolSurface
 from ibkr_eda.performance.analytics import Performance
 from ibkr_eda.portfolio.accounts import Accounts
 from ibkr_eda.portfolio.pnl import PnL
@@ -77,6 +80,14 @@ class IBKR:
 
         # Performance
         self.performance = Performance(self.client)
+
+        # Options
+        fallback_kwargs: dict = {"cache_ttl": cfg.options_cache_ttl}
+        if cfg.tradier_token:
+            fallback_kwargs["tradier_token"] = cfg.tradier_token
+        self.options = OptionChains(self.client, fallback_kwargs=fallback_kwargs)
+        self.greeks = Greeks(self.client, fallback_kwargs=fallback_kwargs)
+        self.vol_surface = VolSurface(self.client, fallback_kwargs=fallback_kwargs)
 
     @classmethod
     async def create_async(cls, config: IBKRConfig | None = None) -> "IBKR":

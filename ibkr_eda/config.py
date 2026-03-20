@@ -19,6 +19,8 @@ class IBKRConfig:
     account_id: str | None = None
     flex_token: str | None = None      # Flex Web Service access token
     flex_query_id: str | None = None   # Flex Query template ID
+    tradier_token: str | None = None   # Tradier sandbox API token (optional)
+    options_cache_ttl: int = 300       # Fallback provider cache TTL in seconds
 
     @classmethod
     def from_env(cls, dotenv_path: str | None = None) -> IBKRConfig:
@@ -32,4 +34,6 @@ class IBKRConfig:
             account_id=os.getenv("IBKR_ACCOUNT_ID") or None,
             flex_token=os.getenv("IBKR_FLEX_TOKEN") or None,
             flex_query_id=os.getenv("IBKR_FLEX_QUERY_ID") or None,
+            tradier_token=os.getenv("TRADIER_TOKEN") or None,
+            options_cache_ttl=int(os.getenv("OPTIONS_CACHE_TTL", "300")),
         )

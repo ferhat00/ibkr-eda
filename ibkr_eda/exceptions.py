@@ -23,3 +23,7 @@ class IBKRAPIError(IBKRError):
 
 class IBKRConnectionError(IBKRError):
     """Cannot reach the IB Gateway."""
+
+
+class IBKROptionsError(IBKRError):
+    """Error fetching or processing options data."""

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 import pandas as pd
 
 
@@ -67,6 +69,22 @@ def history_to_df(bars: list) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     return df
+
+
+def option_quotes_to_df(quotes: list) -> pd.DataFrame:
+    """Convert OptionQuote dataclass instances to a DataFrame.
+
+    Args:
+        quotes: List of ``OptionQuote`` objects.
+
+    Returns:
+        DataFrame with columns: symbol, expiry, strike, right, last, bid, ask,
+        mid, volume, open_interest, implied_vol, delta, gamma, theta, vega,
+        rho, underlying_price, timestamp.
+    """
+    if not quotes:
+        return pd.DataFrame()
+    return pd.DataFrame([asdict(q) for q in quotes])
 
 
 def orders_to_df(trades: list) -> pd.DataFrame:

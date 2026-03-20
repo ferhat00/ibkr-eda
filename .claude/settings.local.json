@@ -35,7 +35,15 @@
       "Bash(.venv/Scripts/python.exe -m pip show dash-bootstrap-components)",
       "Bash(.venv/Scripts/python.exe -m pip show dash)",
       "Bash(.venv/Scripts/python.exe -m pip install -e \".[dashboard-v2]\")",
-      "Bash(timeout 8 .venv/Scripts/python.exe -m ibkr_eda.dashboard_v2 --port 5051)"
+      "Bash(timeout 8 .venv/Scripts/python.exe -m ibkr_eda.dashboard_v2 --port 5051)",
+      "Bash(find /c/Users/Ferhat/Documents/GitHub/ibkr-eda/notebooks -type f -name *.ipynb)",
+      "Bash(python -c \"from ibkr_eda.options.provider import OptionQuote, OptionChainData, VolSurfaceData, OptionsProvider; print\\(''provider.py OK''\\)\")",
+      "Bash(python -c \"from ibkr_eda.options.utils import parse_expiry, expiry_to_ib, filter_strikes, mid_price, is_index; print\\(''utils.py OK''\\); print\\(''parse:'', parse_expiry\\(''20260417''\\)\\); print\\(''filter:'', filter_strikes\\([100,105,110,115,120,125,130], 115.0, 2, 2\\)\\)\")",
+      "Bash(python -c \"from ibkr_eda.options import OptionChains, Greeks, VolSurface, OptionQuote, OptionChainData, VolSurfaceData, OptionsProvider; print\\(''options/__init__.py OK''\\)\")",
+      "Bash(python -c \"from ibkr_eda.utils.transformers import option_quotes_to_df; from ibkr_eda.options.provider import OptionQuote; q = OptionQuote\\(symbol=''SPY'', expiry=''20260417'', strike=500.0, right=''C'', implied_vol=0.15, delta=0.5\\); df = option_quotes_to_df\\([q]\\); print\\(''transformer OK''\\); print\\(df[[''symbol'',''strike'',''right'',''implied_vol'',''delta'']]\\)\")",
+      "Bash(python -c \"from ibkr_eda.exceptions import IBKROptionsError; print\\(''exceptions OK''\\); from ibkr_eda.config import IBKRConfig; c = IBKRConfig\\(\\); print\\(f''config OK: cache_ttl={c.options_cache_ttl}, tradier={c.tradier_token}''\\)\")",
+      "Bash(python -c \"from ibkr_eda.options.fallback_provider import FallbackOptionsProvider; p = FallbackOptionsProvider\\(\\); exps = p.get_expirations\\(''SPY''\\); print\\(f''Fallback OK: SPY has {len\\(exps\\)} expiries''\\); print\\(''Nearest 5:'', exps[:5]\\)\")",
+      "Bash(python -m pytest --tb=short)"
     ]
   }
 }
