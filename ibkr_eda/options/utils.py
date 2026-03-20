@@ -49,6 +49,29 @@ def days_to_expiry(expiry: str | date) -> int:
 # Strike helpers
 # ---------------------------------------------------------------------------
 
+def filter_opt_params(params: list, symbol: str, exchange: str = "SMART") -> list:
+    """Filter ``reqSecDefOptParams`` results to the best matching set.
+
+    Prefer params whose ``tradingClass`` matches the *symbol* (e.g. ``"SPY"``
+    for SPY standard options) and whose exchange is *exchange*.  Falls back to
+    any params with a matching trading class, then to all params.
+    """
+    sym = symbol.upper()
+    # Exact match: tradingClass == symbol AND exchange matches
+    exact = [p for p in params if p.tradingClass == sym and p.exchange == exchange]
+    if exact:
+        return exact
+    # Match by trading class only
+    by_tc = [p for p in params if p.tradingClass == sym]
+    if by_tc:
+        return by_tc
+    # Match by exchange only
+    by_ex = [p for p in params if p.exchange == exchange]
+    if by_ex:
+        return by_ex
+    return params
+
+
 def find_atm_strike(strikes: list[float], underlying_price: float) -> float:
     """Return the strike closest to *underlying_price*."""
     if not strikes:

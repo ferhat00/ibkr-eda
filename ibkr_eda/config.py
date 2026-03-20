@@ -21,6 +21,7 @@ class IBKRConfig:
     flex_query_id: str | None = None   # Flex Query template ID
     tradier_token: str | None = None   # Tradier sandbox API token (optional)
     options_cache_ttl: int = 300       # Fallback provider cache TTL in seconds
+    market_data_type: int = 1         # 1=Live, 2=Frozen, 3=Delayed, 4=Delayed-frozen
 
     @classmethod
     def from_env(cls, dotenv_path: str | None = None) -> IBKRConfig:
@@ -36,4 +37,5 @@ class IBKRConfig:
             flex_query_id=os.getenv("IBKR_FLEX_QUERY_ID") or None,
             tradier_token=os.getenv("TRADIER_TOKEN") or None,
             options_cache_ttl=int(os.getenv("OPTIONS_CACHE_TTL", "300")),
+            market_data_type=int(os.getenv("IBKR_MARKET_DATA_TYPE", "1")),
         )

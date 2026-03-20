@@ -15,6 +15,7 @@ from ibkr_eda.options.utils import (
     build_option_contract,
     build_underlying_contract,
     expiry_to_ib,
+    filter_opt_params,
     filter_strikes,
     mid_price,
 )
@@ -93,26 +94,46 @@ class IBKROptionsProvider:
     # Chain
     # ------------------------------------------------------------------
 
-    def _get_strikes_for_expiry(self, symbol: str, expiry: str) -> list[float]:
-        """Return available strikes for a given expiry."""
-        params = self._get_opt_params(symbol)
+    def _get_strikes_for_expiry(
+        self, symbol: str, expiry: str, exchange: str = "SMART",
+    ) -> tuple[list[float], str | None]:
+        """Return available strikes and tradingClass for a given expiry."""
+        all_params = self._get_opt_params(symbol)
+        filtered = filter_opt_params(all_params, symbol, exchange)
         exp = expiry_to_ib(expiry)
         strikes: set[float] = set()
-        for p in params:
+        trading_class: str | None = None
+        for p in filtered:
             if exp in p.expirations:
                 strikes.update(p.strikes)
-        return sorted(strikes)
+                trading_class = p.tradingClass
+        # Fallback: expiry may belong to a different tradingClass (e.g. VIXW)
+        if not strikes:
+            for p in all_params:
+                if exp in p.expirations:
+                    strikes.update(p.strikes)
+                    trading_class = p.tradingClass
+        return sorted(strikes), trading_class
 
     async def _get_strikes_for_expiry_async(
-        self, symbol: str, expiry: str,
-    ) -> list[float]:
-        params = await self._get_opt_params_async(symbol)
+        self, symbol: str, expiry: str, exchange: str = "SMART",
+    ) -> tuple[list[float], str | None]:
+        all_params = await self._get_opt_params_async(symbol)
+        filtered = filter_opt_params(all_params, symbol, exchange)
         exp = expiry_to_ib(expiry)
         strikes: set[float] = set()
-        for p in params:
+        trading_class: str | None = None
+        for p in filtered:
             if exp in p.expirations:
                 strikes.update(p.strikes)
-        return sorted(strikes)
+                trading_class = p.tradingClass
+        # Fallback: expiry may belong to a different tradingClass (e.g. VIXW)
+        if not strikes:
+            for p in all_params:
+                if exp in p.expirations:
+                    strikes.update(p.strikes)
+                    trading_class = p.tradingClass
+        return sorted(strikes), trading_class
 
     def get_chain(
         self,
@@ -131,37 +152,46 @@ class IBKROptionsProvider:
         max_strikes : int
             Max strikes around ATM when *strike_range* is ``None``.
         """
-        strikes = self._get_strikes_for_expiry(symbol, expiry)
+        strikes, trading_class = self._get_strikes_for_expiry(symbol, expiry, exchange)
         if not strikes:
             raise IBKROptionsError(f"No strikes found for {symbol} {expiry}")
 
+        # Always fetch underlying price for fallback
+        und = build_underlying_contract(symbol)
+        self._client.ib.qualifyContracts(und)
+        ticker = self._client.ib.reqMktData(und, snapshot=True)
+        self._client.ib.sleep(_DATA_WAIT)
+        self._client.ib.cancelMktData(und)
+        und_price = ticker.marketPrice()
+        _valid_und = und_price and und_price == und_price and und_price > 0
+
         if strike_range:
             strikes = [s for s in strikes if strike_range[0] <= s <= strike_range[1]]
+        elif _valid_und:
+            strikes = filter_strikes(
+                strikes, und_price,
+                num_otm=max_strikes // 2, num_itm=max_strikes // 2,
+            )
         else:
-            # Need underlying price for ATM filtering
-            und = build_underlying_contract(symbol)
-            self._client.ib.qualifyContracts(und)
-            ticker = self._client.ib.reqMktData(und, snapshot=True)
-            self._client.ib.sleep(1)
-            self._client.ib.cancelMktData(und)
-            und_price = ticker.marketPrice()
-            if und_price and und_price > 0:
-                strikes = filter_strikes(
-                    strikes, und_price,
-                    num_otm=max_strikes // 2, num_itm=max_strikes // 2,
-                )
+            logger.warning(
+                "Could not get underlying price for %s — using all %d strikes",
+                symbol, len(strikes),
+            )
 
         # Build contracts for both calls and puts
         contracts = []
         for strike in strikes:
             for right in ("C", "P"):
                 contracts.append(
-                    build_option_contract(symbol, expiry, strike, right, exchange)
+                    build_option_contract(
+                        symbol, expiry, strike, right, exchange,
+                        trading_class=trading_class,
+                    )
                 )
 
         # Qualify in batch
         qualified = self._client.ib.qualifyContracts(*contracts)
-        valid = [c for c in qualified if c.conId > 0]
+        valid = [c for c in qualified if c is not None and c.conId > 0]
         if not valid:
             raise IBKROptionsError(
                 f"No option contracts qualified for {symbol} {expiry}"
@@ -170,6 +200,7 @@ class IBKROptionsProvider:
 
         # Fetch market data in batches
         quotes: list[OptionQuote] = []
+        und_fallback = und_price if _valid_und else 0.0
         for i in range(0, len(valid), self._max_concurrent):
             batch = valid[i : i + self._max_concurrent]
             tickers = []
@@ -179,7 +210,7 @@ class IBKROptionsProvider:
             self._client.ib.sleep(_DATA_WAIT)
             for t in tickers:
                 self._client.ib.cancelMktData(t.contract)
-                quotes.append(self._ticker_to_quote(t, symbol, expiry))
+                quotes.append(self._ticker_to_quote(t, symbol, expiry, und_fallback))
 
         return quotes
 
@@ -191,38 +222,48 @@ class IBKROptionsProvider:
         strike_range: tuple[float, float] | None = None,
         max_strikes: int = 20,
     ) -> list[OptionQuote]:
-        strikes = await self._get_strikes_for_expiry_async(symbol, expiry)
+        strikes, trading_class = await self._get_strikes_for_expiry_async(symbol, expiry, exchange)
         if not strikes:
             raise IBKROptionsError(f"No strikes found for {symbol} {expiry}")
 
+        # Always fetch underlying price for fallback
+        und = build_underlying_contract(symbol)
+        await asyncio.ensure_future(
+            self._client.ib.qualifyContractsAsync(und)
+        )
+        ticker = self._client.ib.reqMktData(und, snapshot=True)
+        await asyncio.sleep(_DATA_WAIT)
+        self._client.ib.cancelMktData(und)
+        und_price = ticker.marketPrice()
+        _valid_und = und_price and und_price == und_price and und_price > 0
+
         if strike_range:
             strikes = [s for s in strikes if strike_range[0] <= s <= strike_range[1]]
-        else:
-            und = build_underlying_contract(symbol)
-            await asyncio.ensure_future(
-                self._client.ib.qualifyContractsAsync(und)
+        elif _valid_und:
+            strikes = filter_strikes(
+                strikes, und_price,
+                num_otm=max_strikes // 2, num_itm=max_strikes // 2,
             )
-            ticker = self._client.ib.reqMktData(und, snapshot=True)
-            await asyncio.sleep(1)
-            self._client.ib.cancelMktData(und)
-            und_price = ticker.marketPrice()
-            if und_price and und_price > 0:
-                strikes = filter_strikes(
-                    strikes, und_price,
-                    num_otm=max_strikes // 2, num_itm=max_strikes // 2,
-                )
+        else:
+            logger.warning(
+                "Could not get underlying price for %s — using all %d strikes",
+                symbol, len(strikes),
+            )
 
         contracts = []
         for strike in strikes:
             for right in ("C", "P"):
                 contracts.append(
-                    build_option_contract(symbol, expiry, strike, right, exchange)
+                    build_option_contract(
+                        symbol, expiry, strike, right, exchange,
+                        trading_class=trading_class,
+                    )
                 )
 
         qualified = await asyncio.ensure_future(
             self._client.ib.qualifyContractsAsync(*contracts)
         )
-        valid = [c for c in qualified if c.conId > 0]
+        valid = [c for c in qualified if c is not None and c.conId > 0]
         if not valid:
             raise IBKROptionsError(
                 f"No option contracts qualified for {symbol} {expiry}"
@@ -230,6 +271,8 @@ class IBKROptionsProvider:
         logger.info("Qualified %d option contracts for %s %s", len(valid), symbol, expiry)
 
         # Fetch with semaphore-guarded concurrency
+        und_fallback = und_price if _valid_und else 0.0
+
         async def _fetch_one(contract):
             async with self._semaphore:
                 t = self._client.ib.reqMktData(
@@ -237,7 +280,7 @@ class IBKROptionsProvider:
                 )
                 await asyncio.sleep(_DATA_WAIT)
                 self._client.ib.cancelMktData(contract)
-                return self._ticker_to_quote(t, symbol, expiry)
+                return self._ticker_to_quote(t, symbol, expiry, und_fallback)
 
         quotes = await asyncio.gather(*[_fetch_one(c) for c in valid])
         return list(quotes)
@@ -254,6 +297,15 @@ class IBKROptionsProvider:
         right: str,
         exchange: str = "SMART",
     ) -> OptionQuote:
+        # Fetch underlying price for fallback
+        und = build_underlying_contract(symbol)
+        self._client.ib.qualifyContracts(und)
+        und_ticker = self._client.ib.reqMktData(und, snapshot=True)
+        self._client.ib.sleep(_DATA_WAIT)
+        self._client.ib.cancelMktData(und)
+        und_price = und_ticker.marketPrice()
+        und_fallback = und_price if (und_price and und_price == und_price and und_price > 0) else 0.0
+
         contract = build_option_contract(symbol, expiry, strike, right, exchange)
         self._client.ib.qualifyContracts(contract)
         if contract.conId == 0:
@@ -265,7 +317,7 @@ class IBKROptionsProvider:
         )
         self._client.ib.sleep(_DATA_WAIT)
         self._client.ib.cancelMktData(contract)
-        return self._ticker_to_quote(ticker, symbol, expiry)
+        return self._ticker_to_quote(ticker, symbol, expiry, und_fallback)
 
     async def get_greeks_async(
         self,
@@ -275,6 +327,17 @@ class IBKROptionsProvider:
         right: str,
         exchange: str = "SMART",
     ) -> OptionQuote:
+        # Fetch underlying price for fallback
+        und = build_underlying_contract(symbol)
+        await asyncio.ensure_future(
+            self._client.ib.qualifyContractsAsync(und)
+        )
+        und_ticker = self._client.ib.reqMktData(und, snapshot=True)
+        await asyncio.sleep(_DATA_WAIT)
+        self._client.ib.cancelMktData(und)
+        und_price = und_ticker.marketPrice()
+        und_fallback = und_price if (und_price and und_price == und_price and und_price > 0) else 0.0
+
         contract = build_option_contract(symbol, expiry, strike, right, exchange)
         await asyncio.ensure_future(
             self._client.ib.qualifyContractsAsync(contract)
@@ -288,7 +351,7 @@ class IBKROptionsProvider:
         )
         await asyncio.sleep(_DATA_WAIT)
         self._client.ib.cancelMktData(contract)
-        return self._ticker_to_quote(ticker, symbol, expiry)
+        return self._ticker_to_quote(ticker, symbol, expiry, und_fallback)
 
     # ------------------------------------------------------------------
     # IV Surface
@@ -397,10 +460,13 @@ class IBKROptionsProvider:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _ticker_to_quote(ticker, symbol: str, expiry: str) -> OptionQuote:
+    def _ticker_to_quote(
+        ticker, symbol: str, expiry: str, und_price_fallback: float = 0.0,
+    ) -> OptionQuote:
         """Convert an ib_async Ticker with Greeks into an OptionQuote."""
         c = ticker.contract
         mg = ticker.modelGreeks or ticker.lastGreeks
+        und_price = mg.undPrice if mg and mg.undPrice else und_price_fallback
         return OptionQuote(
             symbol=symbol,
             expiry=expiry_to_ib(expiry),
@@ -418,6 +484,6 @@ class IBKROptionsProvider:
             theta=mg.theta if mg else None,
             vega=mg.vega if mg else None,
             rho=None,
-            underlying_price=mg.undPrice if mg else None,
+            underlying_price=und_price or None,
             timestamp=datetime.now(timezone.utc),
         )

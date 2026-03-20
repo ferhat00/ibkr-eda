@@ -18,6 +18,9 @@ from ibkr_eda.options.utils import expiry_to_ib, filter_strikes, mid_price
 logger = logging.getLogger(__name__)
 
 _CBOE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/options/{symbol}.json"
+
+# CBOE delayed-quotes API uses an underscore prefix for index symbols.
+_CBOE_INDEX_SYMBOLS = {"VIX", "SPX", "NDX", "RUT", "DJX", "OEX", "XSP", "MRUT", "MXSP", "MXEA", "MXEF"}
 _TRADIER_URL = "https://sandbox.tradier.com/v1/markets/options/chains"
 _TRADIER_EXP_URL = "https://sandbox.tradier.com/v1/markets/options/expirations"
 
@@ -59,11 +62,23 @@ class FallbackOptionsProvider:
     # CBOE source
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _cboe_symbol(symbol: str) -> str:
+        """Map a ticker to the CBOE delayed-quotes symbol (prefix ``_`` for indices)."""
+        sym = symbol.upper()
+        # Also accept caret-prefixed index tickers (e.g. ^VIX)
+        bare = sym.lstrip("^")
+        if bare in _CBOE_INDEX_SYMBOLS:
+            return f"_{bare}"
+        return sym
+
     def _fetch_cboe_json(self, symbol: str) -> dict:
         """Download CBOE delayed quotes JSON for *symbol*."""
-        url = _CBOE_URL.format(symbol=symbol.upper())
+        url = _CBOE_URL.format(symbol=self._cboe_symbol(symbol))
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "ibkr-eda"})
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; ibkr-eda)",
+            })
             with urllib.request.urlopen(req, timeout=10) as resp:
                 return json.loads(resp.read().decode())
         except Exception as exc:
@@ -126,6 +141,14 @@ class FallbackOptionsProvider:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _yfinance_symbol(symbol: str) -> str:
+        """Map a ticker to yfinance format (``^`` prefix for indices)."""
+        sym = symbol.upper().lstrip("^")
+        if sym in _CBOE_INDEX_SYMBOLS:
+            return f"^{sym}"
+        return sym
+
+    @staticmethod
     def _fetch_yfinance_expirations(symbol: str) -> list[str]:
         """Return expiry dates from yfinance."""
         try:
@@ -134,7 +157,7 @@ class FallbackOptionsProvider:
             raise IBKROptionsError(
                 "yfinance is not installed. Run: pip install yfinance"
             )
-        ticker = yf.Ticker(symbol.upper())
+        ticker = yf.Ticker(FallbackOptionsProvider._yfinance_symbol(symbol))
         dates = ticker.options  # tuple of "YYYY-MM-DD" strings
         return [d.replace("-", "") for d in dates]
 
@@ -147,7 +170,7 @@ class FallbackOptionsProvider:
             raise IBKROptionsError(
                 "yfinance is not installed. Run: pip install yfinance"
             )
-        ticker = yf.Ticker(symbol.upper())
+        ticker = yf.Ticker(FallbackOptionsProvider._yfinance_symbol(symbol))
         # yfinance expects "YYYY-MM-DD"
         exp_date = f"{expiry[:4]}-{expiry[4:6]}-{expiry[6:8]}"
         try:
