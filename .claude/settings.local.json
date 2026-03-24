@@ -55,7 +55,8 @@
       "Bash(.venv/Scripts/pip install:*)",
       "Bash(.venv/Scripts/pytest tests/test_positions_builder.py -v)",
       "Bash(python3:*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(python -m jupyter nbconvert --to script notebooks/03_vix_hedge.ipynb --stdout)"
     ]
   }
 }

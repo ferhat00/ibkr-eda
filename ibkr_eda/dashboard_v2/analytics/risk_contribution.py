@@ -27,6 +27,14 @@ def compute_risk_contribution(
         if w.sum() > 0:
             w = w / w.sum()
 
+    active = (w > 0).sum()
+    if active < 2:
+        import warnings
+        warnings.warn(
+            f"compute_risk_contribution: only {active} asset(s) have non-zero weight — "
+            "result will be degenerate. Check that weights keys match asset column names."
+        )
+
     cov = asset_returns.cov().values * 252  # annualised
     port_var = w @ cov @ w
     port_vol = np.sqrt(port_var)
@@ -35,8 +43,9 @@ def compute_risk_contribution(
     marginal = cov @ w / port_vol
     # Component risk contribution
     component = w * marginal
-    # Percentage contribution
-    pct = component / port_vol if port_vol > 0 else component
+    # Percentage contribution (share of total portfolio variance)
+    total_rc = component.sum()
+    pct = component / total_rc if total_rc > 0 else component
 
     return pd.DataFrame({
         "asset": assets,
