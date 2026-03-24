@@ -28,14 +28,36 @@ logger = logging.getLogger(__name__)
 class VIXData:
     """Fetch and enrich VIX call options for portfolio insurance analysis."""
 
-    def __init__(self, options: OptionChains | None = None) -> None:
+    def __init__(
+        self,
+        options: OptionChains | None = None,
+        source: str | None = None,
+        tradier_token: str | None = None,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        options:
+            Pre-built OptionChains instance (e.g. from a live IBKR connection).
+            When provided, *source* and *tradier_token* are ignored.
+        source:
+            Which free data backend to use: ``'yfinance'``, ``'cboe'``, or
+            ``'tradier'``.  ``None`` (default) tries all three in order.
+        tradier_token:
+            Tradier sandbox bearer token.  Required when ``source='tradier'``.
+        """
         if options is not None:
             self._options = options
         else:
             from ibkr_eda.options.chain import OptionChains
             from ibkr_eda.options.fallback_provider import FallbackOptionsProvider
 
-            self._options = OptionChains(provider=FallbackOptionsProvider())
+            self._options = OptionChains(
+                provider=FallbackOptionsProvider(
+                    tradier_token=tradier_token,
+                    source=source,
+                )
+            )
 
     # ------------------------------------------------------------------
     # Public API
@@ -44,6 +66,10 @@ class VIXData:
     def get_expirations(self) -> list[str]:
         """Return sorted list of available VIX option expiry dates (YYYYMMDD)."""
         return self._options.get_expirations("VIX")
+
+    async def get_expirations_async(self) -> list[str]:
+        """Async variant — required in Jupyter where an event loop is already running."""
+        return await self._options.get_expirations_async("VIX")
 
     def get_calls(
         self,
@@ -82,6 +108,30 @@ class VIXData:
         df = self._enrich(df, portfolio_value)
 
         # Apply open-interest filter
+        if min_oi > 0 and "open_interest" in df.columns:
+            oi = pd.to_numeric(df["open_interest"], errors="coerce").fillna(0)
+            df = df[oi >= min_oi]
+
+        return df.sort_values("strike").reset_index(drop=True)
+
+    async def get_calls_async(
+        self,
+        expiry: str,
+        portfolio_value: float,
+        min_oi: int = 0,
+    ) -> pd.DataFrame:
+        """Async variant of get_calls — required in Jupyter where an event loop is already running."""
+        df = await self._options.get_df_async("VIX", expiry)
+        if df.empty:
+            logger.warning("Empty chain returned for VIX expiry %s", expiry)
+            return df
+
+        df = df[df["right"] == "C"].copy()
+        if df.empty:
+            return df
+
+        df = self._enrich(df, portfolio_value)
+
         if min_oi > 0 and "open_interest" in df.columns:
             oi = pd.to_numeric(df["open_interest"], errors="coerce").fillna(0)
             df = df[oi >= min_oi]

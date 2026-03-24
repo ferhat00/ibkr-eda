@@ -26,11 +26,24 @@ class Accounts:
         acct = account_id or self._client.account_id
         return self._client.ib.accountSummary(acct)
 
+    _SUMMARY_COLUMNS = ["metric", "amount", "currency"]
+
+    async def get_summary_async(self, account_id: str | None = None) -> pd.DataFrame:
+        """Async version of get_summary — required when called from a running event loop (e.g. Jupyter)."""
+        acct = account_id or self._client.account_id
+        raw = await self._client.ib.accountSummaryAsync(acct)
+        if not raw:
+            # Return empty DataFrame with the correct schema so callers can safely
+            # do summary["metric"] without KeyError (pd.DataFrame() has RangeIndex columns)
+            return pd.DataFrame(columns=self._SUMMARY_COLUMNS)
+        rows = [{"metric": av.tag, "amount": av.value, "currency": av.currency} for av in raw]
+        return pd.DataFrame(rows)
+
     def get_summary(self, account_id: str | None = None) -> pd.DataFrame:
         """Return account summary as a DataFrame (one row per metric)."""
         raw = self.get_summary_raw(account_id)
         if not raw:
-            return pd.DataFrame()
+            return pd.DataFrame(columns=self._SUMMARY_COLUMNS)
         rows = []
         for av in raw:
             rows.append({

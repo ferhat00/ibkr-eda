@@ -32,6 +32,18 @@ class OptionChains:
 
     def _resolve_provider(self) -> OptionsProvider:
         if self._provider is not None:
+            # If the cached provider is IBKR-backed but the connection has since
+            # dropped, transparently switch to the free fallback so callers don't
+            # get "Not connected" errors.
+            from ibkr_eda.options.ibkr_provider import IBKROptionsProvider
+            if isinstance(self._provider, IBKROptionsProvider):
+                if self._client is None or not self._client.ib.isConnected():
+                    logger.info(
+                        "IBKR connection lost — switching option chain provider "
+                        "to FallbackOptionsProvider."
+                    )
+                    from ibkr_eda.options.fallback_provider import FallbackOptionsProvider
+                    self._provider = FallbackOptionsProvider(**self._fallback_kwargs)
             return self._provider
         if self._client and self._client.ib.isConnected():
             from ibkr_eda.options.ibkr_provider import IBKROptionsProvider
@@ -61,13 +73,39 @@ class OptionChains:
 
     def get_raw(self, symbol: str, expiry: str, exchange: str = "SMART") -> list[OptionQuote]:
         """Return raw OptionQuote list for *symbol* + *expiry*."""
-        return self._resolve_provider().get_chain(symbol, expiry, exchange)
+        provider = self._resolve_provider()
+        try:
+            return provider.get_chain(symbol, expiry, exchange)
+        except Exception as exc:
+            from ibkr_eda.options.ibkr_provider import IBKROptionsProvider
+            if isinstance(provider, IBKROptionsProvider):
+                logger.warning(
+                    "IBKR chain fetch failed (%s) — retrying with FallbackOptionsProvider.",
+                    exc,
+                )
+                from ibkr_eda.options.fallback_provider import FallbackOptionsProvider
+                self._provider = FallbackOptionsProvider(**self._fallback_kwargs)
+                return self._provider.get_chain(symbol, expiry, exchange)
+            raise
 
     async def get_raw_async(
         self, symbol: str, expiry: str, exchange: str = "SMART",
     ) -> list[OptionQuote]:
         """Async variant of get_raw."""
-        return await self._resolve_provider().get_chain_async(symbol, expiry, exchange)
+        provider = self._resolve_provider()
+        try:
+            return await provider.get_chain_async(symbol, expiry, exchange)
+        except Exception as exc:
+            from ibkr_eda.options.ibkr_provider import IBKROptionsProvider
+            if isinstance(provider, IBKROptionsProvider):
+                logger.warning(
+                    "IBKR chain fetch failed (%s) — retrying with FallbackOptionsProvider.",
+                    exc,
+                )
+                from ibkr_eda.options.fallback_provider import FallbackOptionsProvider
+                self._provider = FallbackOptionsProvider(**self._fallback_kwargs)
+                return await self._provider.get_chain_async(symbol, expiry, exchange)
+            raise
 
     # ------------------------------------------------------------------
     # Transformed (OptionChainData with DataFrames)

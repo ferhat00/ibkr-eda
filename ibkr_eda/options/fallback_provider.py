@@ -7,7 +7,7 @@ import json
 import logging
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import numpy as np
 
@@ -25,20 +25,48 @@ _TRADIER_URL = "https://sandbox.tradier.com/v1/markets/options/chains"
 _TRADIER_EXP_URL = "https://sandbox.tradier.com/v1/markets/options/expirations"
 
 
+# Accepted values for the ``source`` parameter.
+_VALID_SOURCES = {"yfinance", "cboe", "tradier"}
+
+
 class FallbackOptionsProvider:
     """Options data from CBOE delayed JSON, yfinance, or Tradier sandbox.
 
-    Data sources are tried in order: CBOE → yfinance → Tradier.
+    Data sources are tried in order: CBOE → yfinance → Tradier (unless
+    *source* is specified, in which case only that backend is used).
     Results are cached with a configurable TTL.
+
+    Parameters
+    ----------
+    tradier_token:
+        Tradier sandbox/live bearer token.  Required when
+        ``source='tradier'``.
+    cache_ttl:
+        Cache time-to-live in seconds (default 300).
+    source:
+        Pin a specific data backend: ``'yfinance'``, ``'cboe'``, or
+        ``'tradier'``.  ``None`` (default) tries all three in order.
     """
 
     def __init__(
         self,
         tradier_token: str | None = None,
         cache_ttl: int = 300,
+        source: str | None = None,
     ):
+        if source is not None and source not in _VALID_SOURCES:
+            raise ValueError(
+                f"Invalid source {source!r}. Choose from: {sorted(_VALID_SOURCES)}"
+            )
+        if source == "tradier" and not tradier_token:
+            raise IBKROptionsError(
+                "source='tradier' requires a tradier_token. "
+                "Register free at https://developer.tradier.com/user/sign_up "
+                "to get a sandbox token."
+            )
         self._tradier_token = tradier_token
         self._cache_ttl = cache_ttl
+        self._source = source
         self._cache: dict[str, tuple[float, object]] = {}
 
     # ------------------------------------------------------------------
@@ -286,48 +314,69 @@ class FallbackOptionsProvider:
     # Protocol methods
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _filter_future_expiries(expiries: list[str]) -> list[str]:
+        """Remove expirations that have already passed (including today)."""
+        today_s = date.today().strftime("%Y%m%d")
+        return [e for e in expiries if e > today_s]
+
     def get_expirations(self, symbol: str, exchange: str = "SMART") -> list[str]:
-        cache_key = f"exp:{symbol}"
+        cache_key = f"exp:{symbol}:{self._source}"
         cached = self._get_cached(cache_key)
         if cached is not None:
             return cached  # type: ignore[return-value]
 
+        result: list[str] = []
         errors: list[str] = []
 
-        # Try CBOE
-        try:
-            data = self._fetch_cboe_json(symbol)
-            options = data.get("data", {}).get("options", [])
-            expiries: set[str] = set()
-            for opt in options:
-                exp = opt.get("expiration", "")
-                if exp:
-                    expiries.add(exp.replace("-", ""))
-            result = sorted(expiries)
-            if result:
-                self._set_cached(cache_key, result)
-                return result
-        except Exception as exc:
-            errors.append(f"CBOE: {exc}")
+        if self._source == "cboe" or self._source is None:
+            try:
+                data = self._fetch_cboe_json(symbol)
+                options = data.get("data", {}).get("options", [])
+                expiries: set[str] = set()
+                for opt in options:
+                    exp = opt.get("expiration", "")
+                    if exp:
+                        expiries.add(exp.replace("-", ""))
+                result = sorted(expiries)
+                if result:
+                    result = self._filter_future_expiries(result)
+                    self._set_cached(cache_key, result)
+                    return result
+            except Exception as exc:
+                errors.append(f"CBOE: {exc}")
+                if self._source == "cboe":
+                    raise IBKROptionsError(
+                        f"CBOE source failed for {symbol} expirations: {exc}"
+                    ) from exc
 
-        # Try yfinance
-        try:
-            result = self._fetch_yfinance_expirations(symbol)
-            if result:
-                self._set_cached(cache_key, result)
-                return result
-        except Exception as exc:
-            errors.append(f"yfinance: {exc}")
+        if self._source == "yfinance" or self._source is None:
+            try:
+                result = self._fetch_yfinance_expirations(symbol)
+                if result:
+                    result = self._filter_future_expiries(result)
+                    self._set_cached(cache_key, result)
+                    return result
+            except Exception as exc:
+                errors.append(f"yfinance: {exc}")
+                if self._source == "yfinance":
+                    raise IBKROptionsError(
+                        f"yfinance source failed for {symbol} expirations: {exc}"
+                    ) from exc
 
-        # Try Tradier
-        if self._tradier_token:
+        if self._source == "tradier" or (self._source is None and self._tradier_token):
             try:
                 result = self._fetch_tradier_expirations(symbol)
                 if result:
+                    result = self._filter_future_expiries(result)
                     self._set_cached(cache_key, result)
                     return result
             except Exception as exc:
                 errors.append(f"Tradier: {exc}")
+                if self._source == "tradier":
+                    raise IBKROptionsError(
+                        f"Tradier source failed for {symbol} expirations: {exc}"
+                    ) from exc
 
         raise IBKROptionsError(
             f"All fallback sources failed for {symbol} expirations: "
@@ -351,34 +400,41 @@ class FallbackOptionsProvider:
         max_strikes: int = 40,
     ) -> list[OptionQuote]:
         exp_ib = expiry_to_ib(expiry)
-        cache_key = f"chain:{symbol}:{exp_ib}"
+        cache_key = f"chain:{symbol}:{exp_ib}:{self._source}"
         cached = self._get_cached(cache_key)
         if cached is not None:
             return cached  # type: ignore[return-value]
 
         errors: list[str] = []
 
-        # Try CBOE
-        try:
-            data = self._fetch_cboe_json(symbol)
-            quotes = self._cboe_to_quotes(data, symbol, exp_ib)
-            if quotes:
-                self._set_cached(cache_key, quotes)
-                return self._apply_strike_filter(quotes, strike_range, max_strikes)
-        except Exception as exc:
-            errors.append(f"CBOE: {exc}")
+        if self._source == "cboe" or self._source is None:
+            try:
+                data = self._fetch_cboe_json(symbol)
+                quotes = self._cboe_to_quotes(data, symbol, exp_ib)
+                if quotes:
+                    self._set_cached(cache_key, quotes)
+                    return self._apply_strike_filter(quotes, strike_range, max_strikes)
+            except Exception as exc:
+                errors.append(f"CBOE: {exc}")
+                if self._source == "cboe":
+                    raise IBKROptionsError(
+                        f"CBOE source failed for {symbol} {expiry} chain: {exc}"
+                    ) from exc
 
-        # Try yfinance
-        try:
-            quotes = self._fetch_yfinance_chain(symbol, exp_ib)
-            if quotes:
-                self._set_cached(cache_key, quotes)
-                return self._apply_strike_filter(quotes, strike_range, max_strikes)
-        except Exception as exc:
-            errors.append(f"yfinance: {exc}")
+        if self._source == "yfinance" or self._source is None:
+            try:
+                quotes = self._fetch_yfinance_chain(symbol, exp_ib)
+                if quotes:
+                    self._set_cached(cache_key, quotes)
+                    return self._apply_strike_filter(quotes, strike_range, max_strikes)
+            except Exception as exc:
+                errors.append(f"yfinance: {exc}")
+                if self._source == "yfinance":
+                    raise IBKROptionsError(
+                        f"yfinance source failed for {symbol} {expiry} chain: {exc}"
+                    ) from exc
 
-        # Try Tradier
-        if self._tradier_token:
+        if self._source == "tradier" or (self._source is None and self._tradier_token):
             try:
                 quotes = self._fetch_tradier_chain(symbol, exp_ib)
                 if quotes:
@@ -386,6 +442,10 @@ class FallbackOptionsProvider:
                     return self._apply_strike_filter(quotes, strike_range, max_strikes)
             except Exception as exc:
                 errors.append(f"Tradier: {exc}")
+                if self._source == "tradier":
+                    raise IBKROptionsError(
+                        f"Tradier source failed for {symbol} {expiry} chain: {exc}"
+                    ) from exc
 
         raise IBKROptionsError(
             f"All fallback sources failed for {symbol} {expiry} chain: "

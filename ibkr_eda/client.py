@@ -73,6 +73,7 @@ class IBKRClient:
                 timeout=self.config.timeout,
             )
             self.ib.reqMarketDataType(self.config.market_data_type)
+            await self.ib.reqPositionsAsync()
             logger.info(
                 "Connected to IB Gateway at %s:%s (market data type %d)",
                 self.config.host,

@@ -45,7 +45,17 @@
       "Bash(python -c \"from ibkr_eda.options.fallback_provider import FallbackOptionsProvider; p = FallbackOptionsProvider\\(\\); exps = p.get_expirations\\(''SPY''\\); print\\(f''Fallback OK: SPY has {len\\(exps\\)} expiries''\\); print\\(''Nearest 5:'', exps[:5]\\)\")",
       "Bash(python -m pytest --tb=short)",
       "Bash(grep -r \"HHI\\\\|hhi\\\\|Herfindahl\" /c/Users/Ferhat/Documents/GitHub/ibkr-eda/ibkr_eda/dashboard_v2 --include=*.py)",
-      "Bash(python -c \"from ibkr_eda.hedging import VIXData, ScenarioEngine, HedgeAdvisor, estimate_portfolio_beta; print\\(''All imports OK''\\)\")"
+      "Bash(python -c \"from ibkr_eda.hedging import VIXData, ScenarioEngine, HedgeAdvisor, estimate_portfolio_beta; print\\(''All imports OK''\\)\")",
+      "Bash(grep -r 'No positions found' /c/Users/Ferhat/Documents/GitHub/ibkr-eda --include=*.py --include=*.ipynb)",
+      "Bash(grep -r \"req.*[Pp]osition\\\\|positions\\(\\)\" /c/Users/Ferhat/Documents/GitHub/ibkr-eda/ibkr_eda --include=*.py)",
+      "Bash(grep -l \"positions\" \"/c/Users/Ferhat/Documents/GitHub/ibkr-eda/notebooks\"/*.ipynb)",
+      "Bash(grep -r account_id /c/Users/Ferhat/Documents/GitHub/ibkr-eda/ibkr_eda --include=*.py)",
+      "Bash(python -c \"import ib_async; import inspect; print\\([m for m in dir\\(ib_async.IB\\) if ''summary'' in m.lower\\(\\) or ''Summary'' in m]\\)\")",
+      "Bash(.venv/Scripts/pip show:*)",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(.venv/Scripts/pytest tests/test_positions_builder.py -v)",
+      "Bash(python3:*)",
+      "Bash(xargs grep:*)"
     ]
   }
 }
