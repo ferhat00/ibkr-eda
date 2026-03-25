@@ -20,8 +20,12 @@ def compute_metrics_table(
     columns.
     """
     series = {"Portfolio": portfolio_returns}
-    for col in benchmark_returns.columns:
-        series[col] = benchmark_returns[col].dropna()
+    if isinstance(benchmark_returns, pd.Series):
+        name = benchmark_returns.name or "Benchmark"
+        series[name] = benchmark_returns.dropna()
+    else:
+        for col in benchmark_returns.columns:
+            series[col] = benchmark_returns[col].dropna()
 
     rows = {}
     for name, rets in series.items():

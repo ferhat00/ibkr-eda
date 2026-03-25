@@ -42,10 +42,12 @@ class IBKRClient:
                 clientId=self.config.client_id,
                 timeout=self.config.timeout,
             )
+            self.ib.reqMarketDataType(self.config.market_data_type)
             logger.info(
-                "Connected to IB Gateway at %s:%s",
+                "Connected to IB Gateway at %s:%s (market data type %d)",
                 self.config.host,
                 self.config.port,
+                self.config.market_data_type,
             )
         except Exception as exc:
             raise IBKRConnectionError(
@@ -70,10 +72,19 @@ class IBKRClient:
                 clientId=self.config.client_id,
                 timeout=self.config.timeout,
             )
+            self.ib.reqMarketDataType(self.config.market_data_type)
+            try:
+                await self.ib.reqPositionsAsync()
+            except Exception as exc:
+                logger.warning(
+                    "Connected to IB Gateway but failed to prefetch positions: %s",
+                    exc,
+                )
             logger.info(
-                "Connected to IB Gateway at %s:%s",
+                "Connected to IB Gateway at %s:%s (market data type %d)",
                 self.config.host,
                 self.config.port,
+                self.config.market_data_type,
             )
         except Exception as exc:
             raise IBKRConnectionError(
