@@ -41,8 +41,10 @@ class VIXData:
             Pre-built OptionChains instance (e.g. from a live IBKR connection).
             When provided, *source* and *tradier_token* are ignored.
         source:
-            Which free data backend to use: ``'yfinance'``, ``'cboe'``, or
-            ``'tradier'``.  ``None`` (default) tries all three in order.
+            Which free data backend to use: ``'yfinance'``, ``'cboe'``,
+            ``'tradier'``, or ``'barchart'``.  ``None`` (default) tries all
+            four in order, falling through to the next source if no bid/ask
+            prices are available.
         tradier_token:
             Tradier sandbox bearer token.  Required when ``source='tradier'``.
         """
@@ -214,15 +216,38 @@ class VIXData:
         # Underlying price
         und = pd.to_numeric(df.get("underlying_price"), errors="coerce")
 
-        # Mid price — prefer existing mid column, else compute from bid/ask
-        if "mid" not in df.columns or df["mid"].isna().all():
-            bid = pd.to_numeric(df.get("bid"), errors="coerce")
-            ask = pd.to_numeric(df.get("ask"), errors="coerce")
-            df["mid"] = np.where(
-                (bid > 0) & (ask > 0),
-                (bid + ask) / 2,
-                pd.to_numeric(df.get("last"), errors="coerce"),
-            )
+        # Mid price — always fill NaN values per-row using cascading fallbacks:
+        #   1. Existing mid (from provider: usually mid_price(bid,ask) or last)
+        #   2. (bid + ask) / 2 where both are valid
+        #   3. Last traded price
+        #   4. Intrinsic value for ITM calls (conservative floor)
+        bid = pd.to_numeric(df.get("bid"), errors="coerce")
+        ask = pd.to_numeric(df.get("ask"), errors="coerce")
+        last = pd.to_numeric(df.get("last"), errors="coerce")
+
+        if "mid" in df.columns:
+            mid = pd.to_numeric(df["mid"], errors="coerce")
+        else:
+            mid = pd.Series(np.nan, index=df.index)
+
+        # Fallback 1: (bid + ask) / 2 where both positive
+        ba_mid = pd.Series(
+            np.where((bid > 0) & (ask > 0), (bid + ask) / 2, np.nan),
+            index=df.index,
+        )
+        mid = mid.fillna(ba_mid)
+
+        # Fallback 2: last traded price
+        mid = mid.fillna(last)
+
+        # Fallback 3: intrinsic value for ITM calls
+        # VIX calls: intrinsic = max(0, underlying - strike)
+        if und.notna().any():
+            und_scalar = und.dropna().iloc[0] if und.notna().any() else np.nan
+            intrinsic = np.maximum(0, und_scalar - df["strike"])
+            mid = mid.fillna(intrinsic.where(intrinsic > 0))
+
+        df["mid"] = mid
         mid = pd.to_numeric(df["mid"], errors="coerce")
 
         # Moneyness: (strike - underlying) / underlying  (positive = OTM for calls)

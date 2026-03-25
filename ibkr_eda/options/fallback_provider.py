@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import logging
 import re
@@ -46,9 +48,15 @@ _CBOE_INDEX_SYMBOLS = {"VIX", "SPX", "NDX", "RUT", "DJX", "OEX", "XSP", "MRUT", 
 _TRADIER_URL = "https://sandbox.tradier.com/v1/markets/options/chains"
 _TRADIER_EXP_URL = "https://sandbox.tradier.com/v1/markets/options/expirations"
 
+# Barchart uses a "$" prefix for index/futures symbols and a separate base URL.
+_BARCHART_BASE = "https://www.barchart.com"
+_BARCHART_API_CHAIN = "https://www.barchart.com/proxies/core-api/v1/options/chain"
+_BARCHART_API_EXP = "https://www.barchart.com/proxies/core-api/v1/options/expirations"
+# Index-like symbols that Barchart prefixes with "$".
+_BARCHART_INDEX_SYMBOLS = _CBOE_INDEX_SYMBOLS | {"ES", "NQ", "CL", "GC", "SI"}
 
 # Accepted values for the ``source`` parameter.
-_VALID_SOURCES = {"yfinance", "cboe", "tradier"}
+_VALID_SOURCES = {"yfinance", "cboe", "tradier", "barchart"}
 
 
 class FallbackOptionsProvider:
@@ -132,7 +140,7 @@ class FallbackOptionsProvider:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 return json.loads(resp.read().decode())
         except Exception as exc:
-            logger.debug("CBOE fetch failed for %s: %s", symbol, exc)
+            logger.warning("CBOE fetch failed for %s: %s", symbol, exc)
             raise
 
     def _cboe_to_quotes(
@@ -143,6 +151,11 @@ class FallbackOptionsProvider:
         CBOE's delayed-quotes JSON encodes expiry, right, and strike inside
         the OCC option symbol (e.g. ``VIX260617C00010000``).  There are no
         separate ``expiration``, ``strike``, or ``option_type`` fields.
+
+        For VIX options, IBKR uses the **last trading day** (usually Tuesday)
+        while CBOE OCC symbols use the **settlement date** (usually Wednesday).
+        When no exact expiry match is found, this method fuzzy-matches by
+        looking for the closest CBOE expiry within ±2 calendar days.
         """
         quotes: list[OptionQuote] = []
         und_price = None
@@ -152,7 +165,32 @@ class FallbackOptionsProvider:
 
         target_expiry = expiry_to_ib(expiry) if expiry else None
 
+        # Pre-scan available CBOE expiries for fuzzy date matching
         options = data.get("data", {}).get("options", [])
+        if target_expiry:
+            cboe_expiries: set[str] = set()
+            for opt in options:
+                parsed = _parse_occ_symbol(opt.get("option", ""))
+                if parsed is not None:
+                    cboe_expiries.add(parsed[1])
+            # If exact match not in CBOE, find nearest within ±2 days
+            if target_expiry not in cboe_expiries:
+                target_date = datetime.strptime(target_expiry, "%Y%m%d").date()
+                best = None
+                best_delta = 999
+                for ce in cboe_expiries:
+                    ce_date = datetime.strptime(ce, "%Y%m%d").date()
+                    delta = abs((ce_date - target_date).days)
+                    if delta <= 2 and delta < best_delta:
+                        best = ce
+                        best_delta = delta
+                if best:
+                    logger.info(
+                        "CBOE expiry fuzzy match: requested %s → using %s (±%d day)",
+                        target_expiry, best, best_delta,
+                    )
+                    target_expiry = best
+
         for opt in options:
             option_str = opt.get("option", "")
             parsed = _parse_occ_symbol(option_str)
@@ -170,6 +208,17 @@ class FallbackOptionsProvider:
 
             last_raw = opt.get("last_trade_price")
             last = float(last_raw) if last_raw is not None and float(last_raw) > 0 else None
+            if last is None:
+                prev_raw = opt.get("prev_day_close")
+                if prev_raw is not None and float(prev_raw) > 0:
+                    last = float(prev_raw)
+            if last is None:
+                # Try additional CBOE fields as price fallbacks
+                for fallback_key in ("close", "theo", "settlement_value", "theoretical_value"):
+                    fb_raw = opt.get(fallback_key)
+                    if fb_raw is not None and float(fb_raw) > 0:
+                        last = float(fb_raw)
+                        break
 
             iv_raw = opt.get("iv")
             iv = float(iv_raw) if iv_raw is not None and float(iv_raw) > 0 else None
@@ -182,7 +231,7 @@ class FallbackOptionsProvider:
                 last=last,
                 bid=bid,
                 ask=ask,
-                mid=mid_price(bid, ask),
+                mid=mid_price(bid, ask) or last,
                 volume=int(opt["volume"]) if opt.get("volume") else None,
                 open_interest=int(opt["open_interest"]) if opt.get("open_interest") else None,
                 implied_vol=iv,
@@ -235,14 +284,38 @@ class FallbackOptionsProvider:
         exp_date = f"{expiry[:4]}-{expiry[4:6]}-{expiry[6:8]}"
         try:
             chain = ticker.option_chain(exp_date)
-        except Exception as exc:
-            logger.debug("yfinance chain failed for %s %s: %s", symbol, exp_date, exc)
-            raise
+        except Exception:
+            # Fuzzy date match: yfinance uses settlement dates which may
+            # differ by ±1-2 days from IBKR last-trading-day dates (e.g. VIX).
+            available = ticker.options  # tuple of "YYYY-MM-DD" strings
+            target_date = datetime.strptime(expiry[:8], "%Y%m%d").date()
+            matched = None
+            best_delta = 999
+            for avail in available:
+                avail_date = datetime.strptime(avail, "%Y-%m-%d").date()
+                delta = abs((avail_date - target_date).days)
+                if delta <= 2 and delta < best_delta:
+                    matched = avail
+                    best_delta = delta
+            if matched is None:
+                raise
+            logger.info(
+                "yfinance expiry fuzzy match: requested %s → using %s (±%d day)",
+                exp_date, matched, best_delta,
+            )
+            exp_date = matched
+            chain = ticker.option_chain(exp_date)
 
         und_price = None
-        info = ticker.fast_info
-        if hasattr(info, "last_price") and info.last_price:
-            und_price = float(info.last_price)
+        try:
+            info = ticker.fast_info
+            for attr in ("last_price", "previous_close", "regularMarketPrice"):
+                val = getattr(info, attr, None)
+                if val and float(val) > 0:
+                    und_price = float(val)
+                    break
+        except Exception:
+            pass
 
         quotes: list[OptionQuote] = []
         exp_ib = expiry_to_ib(expiry)
@@ -252,8 +325,8 @@ class FallbackOptionsProvider:
             for _, row in df.iterrows():
                 bid_raw = row.get("bid")
                 ask_raw = row.get("ask")
-                bid = float(bid_raw) if pd.notna(bid_raw) and float(bid_raw) > 0 else None
-                ask = float(ask_raw) if pd.notna(ask_raw) and float(ask_raw) > 0 else None
+                bid = float(bid_raw) if pd.notna(bid_raw) else None
+                ask = float(ask_raw) if pd.notna(ask_raw) else None
                 last_raw = row.get("lastPrice")
                 last = float(last_raw) if pd.notna(last_raw) and float(last_raw) > 0 else None
                 iv_raw = row.get("impliedVolatility")
@@ -266,7 +339,7 @@ class FallbackOptionsProvider:
                     last=last,
                     bid=bid,
                     ask=ask,
-                    mid=mid_price(bid, ask),
+                    mid=mid_price(bid, ask) or last,
                     volume=int(row["volume"]) if pd.notna(row.get("volume")) and row["volume"] > 0 else None,
                     open_interest=int(row["openInterest"]) if pd.notna(row.get("openInterest")) and row["openInterest"] > 0 else None,
                     implied_vol=iv,
@@ -347,6 +420,391 @@ class FallbackOptionsProvider:
         return quotes
 
     # ------------------------------------------------------------------
+    # Barchart source
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _barchart_symbol(symbol: str) -> str:
+        """Map a ticker to Barchart format (``$`` prefix for indices)."""
+        sym = symbol.upper().lstrip("^")
+        if sym in _BARCHART_INDEX_SYMBOLS:
+            return f"${sym}"
+        return sym
+
+    @staticmethod
+    def _barchart_expiry_param(expiry_yyyymmdd: str, weekly: bool = False) -> str:
+        """Convert YYYYMMDD to Barchart expiration query param (YYYY-MM-DD or YYYY-MM-DD-w)."""
+        d = f"{expiry_yyyymmdd[:4]}-{expiry_yyyymmdd[4:6]}-{expiry_yyyymmdd[6:8]}"
+        return f"{d}-w" if weekly else d
+
+    def _get_barchart_session(self, symbol: str):
+        """Return a ``requests.Session`` primed with Barchart cookies + XSRF token.
+
+        We visit the options overview page once to collect the XSRF-TOKEN cookie
+        that Barchart's XHR API requires for all subsequent requests.
+        """
+        try:
+            import requests
+        except ImportError:
+            raise IBKROptionsError("requests is not installed. Run: pip install requests")
+
+        session = requests.Session()
+        bc_sym = self._barchart_symbol(symbol)
+        session.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+        })
+        # Prime session cookies (including XSRF-TOKEN)
+        page_url = f"{_BARCHART_BASE}/stocks/quotes/{bc_sym}/options"
+        try:
+            session.get(page_url, timeout=15)
+        except Exception as exc:
+            logger.debug("Barchart session prime failed: %s", exc)
+        xsrf = session.cookies.get("XSRF-TOKEN")
+        if xsrf:
+            session.headers["X-XSRF-TOKEN"] = xsrf
+        session.headers["Referer"] = page_url
+        return session
+
+    def _fetch_barchart_expirations(self, symbol: str) -> list[str]:
+        """Fetch available expiry dates from Barchart using BeautifulSoup + API."""
+        try:
+            from bs4 import BeautifulSoup
+        except ImportError:
+            raise IBKROptionsError(
+                "beautifulsoup4 is not installed. Run: pip install beautifulsoup4"
+            )
+
+        bc_sym = self._barchart_symbol(symbol)
+        session = self._get_barchart_session(symbol)
+
+        # --- Strategy 1: JSON API for expirations ---
+        try:
+            api_resp = session.get(
+                _BARCHART_API_EXP,
+                params={"symbol": bc_sym, "raw": "1"},
+                headers={"Accept": "application/json"},
+                timeout=10,
+            )
+            if api_resp.status_code == 200:
+                data = api_resp.json()
+                exps = data.get("data", [])
+                dates = [
+                    e["expirationDate"].replace("-", "")
+                    for e in exps
+                    if "expirationDate" in e
+                ]
+                if dates:
+                    return sorted(set(dates))
+        except Exception as exc:
+            logger.debug("Barchart expirations API failed: %s", exc)
+
+        # --- Strategy 2: Parse HTML page for <select>/<option> expiry values ---
+        page_url = f"{_BARCHART_BASE}/stocks/quotes/{bc_sym}/options"
+        resp = session.get(page_url, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        dates: list[str] = []
+        _exp_re = re.compile(r"^\d{4}-\d{2}-\d{2}(-w)?$")
+
+        for sel in soup.find_all("select"):
+            for opt in sel.find_all("option"):
+                val = opt.get("value", "").strip()
+                if _exp_re.match(val):
+                    dates.append(val[:10].replace("-", ""))
+
+        if dates:
+            return sorted(set(dates))
+
+        # --- Strategy 3: Embedded __NEXT_DATA__ JSON ---
+        script = soup.find("script", {"id": "__NEXT_DATA__"})
+        if script and script.string:
+            try:
+                nd = json.loads(script.string)
+                # Walk the props tree looking for expirationDate keys
+                raw = json.dumps(nd)
+                found = re.findall(r'"expirationDate"\s*:\s*"(\d{4}-\d{2}-\d{2})"', raw)
+                if found:
+                    return sorted({d.replace("-", "") for d in found})
+            except Exception:
+                pass
+
+        raise IBKROptionsError(f"Barchart: could not find expirations for {symbol}")
+
+    def _fetch_barchart_chain(self, symbol: str, expiry: str) -> list[OptionQuote]:
+        """Fetch option chain from Barchart using BeautifulSoup + JSON API.
+
+        Tries the Barchart core-api JSON endpoint first (most reliable), then
+        falls back to parsing the HTML table with BeautifulSoup.
+
+        The expiry URL parameter accepts both ``YYYY-MM-DD`` (monthly) and
+        ``YYYY-MM-DD-w`` (weekly) formats; we try weekly first, then monthly.
+        """
+        try:
+            from bs4 import BeautifulSoup
+        except ImportError:
+            raise IBKROptionsError(
+                "beautifulsoup4 is not installed. Run: pip install beautifulsoup4"
+            )
+
+        bc_sym = self._barchart_symbol(symbol)
+        exp_ib = expiry_to_ib(expiry)
+        now = datetime.now(timezone.utc)
+        session = self._get_barchart_session(symbol)
+
+        # Try weekly param first, then plain date (matches user's example URL)
+        exp_params = [
+            self._barchart_expiry_param(exp_ib, weekly=True),
+            self._barchart_expiry_param(exp_ib, weekly=False),
+        ]
+
+        # --- Strategy 1: Core JSON API ---
+        for exp_param in exp_params:
+            try:
+                api_resp = session.get(
+                    _BARCHART_API_CHAIN,
+                    params={
+                        "symbol": bc_sym,
+                        "expiration": exp_param,
+                        "startStrike": "",
+                        "endStrike": "",
+                        "right": "call,put",
+                        "moneyness": "all",
+                        "page": "1",
+                        "limit": "2000",
+                        "raw": "1",
+                    },
+                    headers={"Accept": "application/json"},
+                    timeout=15,
+                )
+                if api_resp.status_code != 200:
+                    continue
+                data = api_resp.json()
+                rows = data.get("data", [])
+                if not rows:
+                    continue
+                quotes = self._barchart_api_rows_to_quotes(rows, symbol, exp_ib, now)
+                if quotes:
+                    return quotes
+            except Exception as exc:
+                logger.debug("Barchart API chain failed (%s): %s", exp_param, exc)
+
+        # --- Strategy 2: Parse HTML table with BeautifulSoup ---
+        for exp_param in exp_params:
+            page_url = (
+                f"{_BARCHART_BASE}/stocks/quotes/{bc_sym}/options"
+                f"?expiration={exp_param}"
+            )
+            try:
+                resp = session.get(page_url, timeout=15)
+                resp.raise_for_status()
+                quotes = self._barchart_html_to_quotes(
+                    resp.text, symbol, exp_ib, now
+                )
+                if quotes:
+                    return quotes
+            except Exception as exc:
+                logger.debug("Barchart HTML chain failed (%s): %s", exp_param, exc)
+
+        return []
+
+    @staticmethod
+    def _barchart_api_rows_to_quotes(
+        rows: list[dict],
+        symbol: str,
+        exp_ib: str,
+        now: datetime,
+    ) -> list[OptionQuote]:
+        """Convert Barchart core-API rows into OptionQuote objects."""
+        quotes: list[OptionQuote] = []
+        for row in rows:
+            # Barchart returns separate call/put rows; optionType field: "call" or "put"
+            right_raw = row.get("optionType", row.get("type", "")).lower()
+            right = "C" if "call" in right_raw else ("P" if "put" in right_raw else None)
+            if right is None:
+                continue
+
+            def _f(key: str) -> float | None:
+                v = row.get(key)
+                try:
+                    f = float(v)
+                    return f if f != 0 else None
+                except (TypeError, ValueError):
+                    return None
+
+            strike = _f("strikePrice") or _f("strike")
+            if strike is None:
+                continue
+
+            bid = _f("bid") or _f("bidPrice")
+            ask = _f("ask") or _f("askPrice")
+            last = _f("lastPrice") or _f("last")
+            iv = _f("volatility") or _f("impliedVolatility")
+            if iv and iv > 5:  # Barchart sometimes returns IV as percentage (e.g. 85.2)
+                iv = iv / 100.0
+
+            und = _f("baseLastPrice") or _f("underlyingPrice")
+            volume = None
+            v_raw = row.get("volume")
+            try:
+                volume = int(float(v_raw)) if v_raw else None
+            except (TypeError, ValueError):
+                pass
+            oi = None
+            oi_raw = row.get("openInterest")
+            try:
+                oi = int(float(oi_raw)) if oi_raw else None
+            except (TypeError, ValueError):
+                pass
+
+            quotes.append(OptionQuote(
+                symbol=symbol.upper(),
+                expiry=exp_ib,
+                strike=strike,
+                right=right,
+                last=last,
+                bid=bid,
+                ask=ask,
+                mid=mid_price(bid, ask) or last,
+                volume=volume,
+                open_interest=oi,
+                implied_vol=iv,
+                delta=_f("delta"),
+                gamma=_f("gamma"),
+                theta=_f("theta"),
+                vega=_f("vega"),
+                rho=_f("rho"),
+                underlying_price=und,
+                timestamp=now,
+            ))
+        return quotes
+
+    @staticmethod
+    def _barchart_html_to_quotes(
+        html: str,
+        symbol: str,
+        exp_ib: str,
+        now: datetime,
+    ) -> list[OptionQuote]:
+        """Parse a Barchart options HTML page into OptionQuote objects using BeautifulSoup.
+
+        Barchart renders calls and puts side-by-side in a single table where each
+        row has columns: [call-side...] | Strike | [put-side...].  We detect the
+        header layout and extract bid/ask for each side.
+        """
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(html, "html.parser")
+        quotes: list[OptionQuote] = []
+
+        # --- Try embedded __NEXT_DATA__ JSON first ---
+        script = soup.find("script", {"id": "__NEXT_DATA__"})
+        if script and script.string:
+            try:
+                nd = json.loads(script.string)
+                raw_text = json.dumps(nd)
+                # Look for rows with strikePrice + bid/ask
+                import re as _re
+                # Find all objects that look like option rows
+                row_pattern = _re.compile(
+                    r'\{[^{}]*"strikePrice"\s*:\s*"?([\d.]+)"?[^{}]*\}'
+                )
+                for m in row_pattern.finditer(raw_text):
+                    try:
+                        obj = json.loads(m.group(0))
+                        right_raw = obj.get("optionType", obj.get("type", "")).lower()
+                        right = "C" if "call" in right_raw else ("P" if "put" in right_raw else None)
+                        if right is None:
+                            continue
+                        def _fv(k):
+                            v = obj.get(k)
+                            try:
+                                f = float(v)
+                                return f if f != 0 else None
+                            except Exception:
+                                return None
+                        strike = _fv("strikePrice")
+                        if not strike:
+                            continue
+                        bid = _fv("bid")
+                        ask = _fv("ask")
+                        quotes.append(OptionQuote(
+                            symbol=symbol.upper(), expiry=exp_ib, strike=strike,
+                            right=right, last=_fv("lastPrice"),
+                            bid=bid, ask=ask, mid=mid_price(bid, ask) or _fv("lastPrice"),
+                            volume=None, open_interest=None,
+                            implied_vol=_fv("volatility"),
+                            delta=None, gamma=None, theta=None, vega=None, rho=None,
+                            underlying_price=_fv("baseLastPrice"),
+                            timestamp=now,
+                        ))
+                    except Exception:
+                        continue
+                if quotes:
+                    return quotes
+            except Exception:
+                pass
+
+        # --- Fallback: find <table> elements and parse rows ---
+        tables = soup.find_all("table")
+        for table in tables:
+            headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
+            if not headers or "strike" not in " ".join(headers):
+                continue
+
+            # Locate column indices
+            def _col(name: str) -> int | None:
+                for i, h in enumerate(headers):
+                    if name in h:
+                        return i
+                return None
+
+            strike_col = _col("strike")
+            bid_col = _col("bid")
+            ask_col = _col("ask")
+            last_col = _col("last")
+            if strike_col is None:
+                continue
+
+            for tr in table.find_all("tr")[1:]:
+                cells = [td.get_text(strip=True) for td in tr.find_all("td")]
+                if len(cells) <= strike_col:
+                    continue
+
+                def _cell_f(idx: int | None) -> float | None:
+                    if idx is None or idx >= len(cells):
+                        return None
+                    try:
+                        v = float(cells[idx].replace(",", ""))
+                        return v if v != 0 else None
+                    except ValueError:
+                        return None
+
+                strike = _cell_f(strike_col)
+                if not strike:
+                    continue
+                bid = _cell_f(bid_col)
+                ask = _cell_f(ask_col)
+                last = _cell_f(last_col)
+                # Single-sided table: assume calls (most Barchart tables show calls by default)
+                quotes.append(OptionQuote(
+                    symbol=symbol.upper(), expiry=exp_ib, strike=strike,
+                    right="C", last=last, bid=bid, ask=ask,
+                    mid=mid_price(bid, ask) or last,
+                    volume=None, open_interest=None, implied_vol=None,
+                    delta=None, gamma=None, theta=None, vega=None, rho=None,
+                    underlying_price=None, timestamp=now,
+                ))
+
+        return quotes
+
+    # ------------------------------------------------------------------
     # Protocol methods
     # ------------------------------------------------------------------
 
@@ -414,6 +872,20 @@ class FallbackOptionsProvider:
                         f"Tradier source failed for {symbol} expirations: {exc}"
                     ) from exc
 
+        if self._source == "barchart" or self._source is None:
+            try:
+                result = self._fetch_barchart_expirations(symbol)
+                if result:
+                    result = self._filter_future_expiries(result)
+                    self._set_cached(cache_key, result)
+                    return result
+            except Exception as exc:
+                errors.append(f"Barchart: {exc}")
+                if self._source == "barchart":
+                    raise IBKROptionsError(
+                        f"Barchart source failed for {symbol} expirations: {exc}"
+                    ) from exc
+
         raise IBKROptionsError(
             f"All fallback sources failed for {symbol} expirations: "
             + "; ".join(errors)
@@ -442,14 +914,23 @@ class FallbackOptionsProvider:
             return cached  # type: ignore[return-value]
 
         errors: list[str] = []
+        # Track all quote sets from sources that returned data but lacked
+        # bid/ask (market closed).  Used to return the best available data
+        # instead of raising an error when no source has live quotes.
+        _fallback_quote_sets: list[list[OptionQuote]] = []
 
         if self._source == "cboe" or self._source is None:
             try:
                 data = self._fetch_cboe_json(symbol)
                 quotes = self._cboe_to_quotes(data, symbol, exp_ib)
                 if quotes:
-                    self._set_cached(cache_key, quotes)
-                    return self._apply_strike_filter(quotes, strike_range, max_strikes)
+                    # Fall through to next source if no bid/ask available (market closed)
+                    if self._source is None and not self._has_bid_ask(quotes):
+                        errors.append("CBOE: no bid/ask prices available")
+                        _fallback_quote_sets.append(quotes)
+                    else:
+                        self._set_cached(cache_key, quotes)
+                        return self._apply_strike_filter(quotes, strike_range, max_strikes)
             except Exception as exc:
                 errors.append(f"CBOE: {exc}")
                 if self._source == "cboe":
@@ -461,8 +942,13 @@ class FallbackOptionsProvider:
             try:
                 quotes = self._fetch_yfinance_chain(symbol, exp_ib)
                 if quotes:
-                    self._set_cached(cache_key, quotes)
-                    return self._apply_strike_filter(quotes, strike_range, max_strikes)
+                    # Fall through if no bid/ask available
+                    if self._source is None and not self._has_bid_ask(quotes):
+                        errors.append("yfinance: no bid/ask prices available")
+                        _fallback_quote_sets.append(quotes)
+                    else:
+                        self._set_cached(cache_key, quotes)
+                        return self._apply_strike_filter(quotes, strike_range, max_strikes)
             except Exception as exc:
                 errors.append(f"yfinance: {exc}")
                 if self._source == "yfinance":
@@ -474,14 +960,42 @@ class FallbackOptionsProvider:
             try:
                 quotes = self._fetch_tradier_chain(symbol, exp_ib)
                 if quotes:
-                    self._set_cached(cache_key, quotes)
-                    return self._apply_strike_filter(quotes, strike_range, max_strikes)
+                    # If Tradier returned quotes but none have bid/ask, fall through to Barchart
+                    if self._source is None and not self._has_bid_ask(quotes):
+                        errors.append("Tradier: no bid/ask prices available")
+                        _fallback_quote_sets.append(quotes)
+                    else:
+                        self._set_cached(cache_key, quotes)
+                        return self._apply_strike_filter(quotes, strike_range, max_strikes)
             except Exception as exc:
                 errors.append(f"Tradier: {exc}")
                 if self._source == "tradier":
                     raise IBKROptionsError(
                         f"Tradier source failed for {symbol} {expiry} chain: {exc}"
                     ) from exc
+
+        if self._source == "barchart" or self._source is None:
+            try:
+                quotes = self._fetch_barchart_chain(symbol, exp_ib)
+                if quotes:
+                    if self._source is None and not self._has_bid_ask(quotes):
+                        _fallback_quote_sets.append(quotes)
+                    else:
+                        self._set_cached(cache_key, quotes)
+                        return self._apply_strike_filter(quotes, strike_range, max_strikes)
+            except Exception as exc:
+                errors.append(f"Barchart: {exc}")
+                if self._source == "barchart":
+                    raise IBKROptionsError(
+                        f"Barchart source failed for {symbol} {expiry} chain: {exc}"
+                    ) from exc
+
+        # All sources lacked bid/ask or failed — return the best available
+        # data by merging across sources for maximum coverage.
+        if _fallback_quote_sets:
+            merged = self._merge_quotes(_fallback_quote_sets)
+            self._set_cached(cache_key, merged)
+            return self._apply_strike_filter(merged, strike_range, max_strikes)
 
         raise IBKROptionsError(
             f"All fallback sources failed for {symbol} {expiry} chain: "
@@ -592,6 +1106,55 @@ class FallbackOptionsProvider:
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _has_bid_ask(quotes: list[OptionQuote]) -> bool:
+        """Return True if at least one quote has a non-zero bid *and* ask."""
+        return any(
+            q.bid is not None and q.bid > 0 and q.ask is not None and q.ask > 0
+            for q in quotes
+        )
+
+    @staticmethod
+    def _count_priced(quotes: list[OptionQuote]) -> int:
+        """Count quotes that have any usable price (mid, last, bid, or ask)."""
+        return sum(
+            1 for q in quotes
+            if any(v is not None and v > 0 for v in [q.mid, q.last, q.bid, q.ask])
+        )
+
+    @staticmethod
+    def _merge_quotes(
+        quote_sets: list[list[OptionQuote]],
+    ) -> list[OptionQuote]:
+        """Merge quotes from multiple sources, keeping the best-priced per strike+right.
+
+        When market is closed, different sources may have pricing for different
+        strikes (CBOE has prev_day_close, yfinance has lastPrice, etc.).
+        Merging gives the best coverage.
+        """
+        def _price_score(q: OptionQuote) -> int:
+            s = 0
+            if q.bid is not None and q.bid > 0:
+                s += 3
+            if q.ask is not None and q.ask > 0:
+                s += 3
+            if q.mid is not None and q.mid > 0:
+                s += 2
+            if q.last is not None and q.last > 0:
+                s += 1
+            if q.implied_vol is not None and q.implied_vol > 0:
+                s += 1
+            return s
+
+        best: dict[tuple[float, str], OptionQuote] = {}
+        for quotes in quote_sets:
+            for q in quotes:
+                key = (q.strike, q.right)
+                existing = best.get(key)
+                if existing is None or _price_score(q) > _price_score(existing):
+                    best[key] = q
+        return sorted(best.values(), key=lambda q: (q.right, q.strike))
 
     @staticmethod
     def _apply_strike_filter(

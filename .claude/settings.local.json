@@ -58,7 +58,16 @@
       "Bash(xargs grep:*)",
       "Bash(python -m jupyter nbconvert --to script notebooks/03_vix_hedge.ipynb --stdout)",
       "Bash(ls /c/Users/Ferhat/Documents/GitHub/ibkr-eda/ibkr_eda/dashboard_v2/data/*.py)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "WebFetch(domain:www.barchart.com)",
+      "WebFetch(domain:api.polygon.io)",
+      "Bash(curl -s -H \"Referer: https://www.barchart.com\" -H \"Accept: application/json\" -H \"User-Agent: Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\)\" \"https://www.barchart.com/proxies/core-api/v1/options/chain?symbol=%5EVIX&expiration=2026-06-16&right=call&fields=lastPrice%2CpriceChange%2CpercentChange%2Cbid%2Cask%2CopenInterest%2Cvolume%2CimpliedVolatility%2Cdelta%2Cgamma%2Ctheta%2Cvega%2Crho%2CbaseLastPrice&orderBy=strikePrice&orderDir=asc&raw=1\")",
+      "Bash(curl -s -H \"User-Agent: Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\)\" \"https://api.polygon.io/v3/snapshot/options/VIX?apiKey=demo&limit=5\")",
+      "Bash(curl -i -H \"Referer: https://www.barchart.com\" -H \"Accept: application/json\" -H \"User-Agent: Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\)\" \"https://www.barchart.com/proxies/core-api/v1/options/chain?symbol=%5EVIX&expiration=2026-06-16&right=call&raw=1\")",
+      "Bash(curl -s -L -H \"Cookie: \" -H \"Referer: https://www.barchart.com/options/chain/VIX\" -H \"Accept: application/json\" -H \"User-Agent: Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36\" \"https://www.barchart.com/proxies/core-api/v1/options/chain?symbol=%5EVIX&expiration=2026-06-16&right=call&raw=1\")",
+      "Bash(curl -s \"https://api.polygon.io/v3/snapshot/options/VIX?apiKey=pk_live_demo&limit=5\")",
+      "Bash(curl -s -H \"User-Agent: Mozilla/5.0 \\(compatible; ibkr-eda\\)\" \"https://cdn.cboe.com/api/global/delayed_quotes/options/_VIX.json\")",
+      "Bash(pip show:*)"
     ]
   }
 }

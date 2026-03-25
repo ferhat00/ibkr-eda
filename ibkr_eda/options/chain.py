@@ -75,7 +75,26 @@ class OptionChains:
         """Return raw OptionQuote list for *symbol* + *expiry*."""
         provider = self._resolve_provider()
         try:
-            return provider.get_chain(symbol, expiry, exchange)
+            quotes = provider.get_chain(symbol, expiry, exchange)
+            from ibkr_eda.options.ibkr_provider import IBKROptionsProvider
+            if isinstance(provider, IBKROptionsProvider) and quotes:
+                has_price = any(
+                    (q.bid is not None and q.bid > 0)
+                    or (q.ask is not None and q.ask > 0)
+                    or (q.mid is not None and q.mid > 0)
+                    or (q.last is not None and q.last > 0)
+                    for q in quotes
+                )
+                if not has_price:
+                    logger.info(
+                        "IBKR returned %d quotes for %s %s but none have pricing "
+                        "— falling back to free sources.",
+                        len(quotes), symbol, expiry,
+                    )
+                    from ibkr_eda.options.fallback_provider import FallbackOptionsProvider
+                    fb = FallbackOptionsProvider(**self._fallback_kwargs)
+                    return fb.get_chain(symbol, expiry, exchange)
+            return quotes
         except Exception as exc:
             from ibkr_eda.options.ibkr_provider import IBKROptionsProvider
             if isinstance(provider, IBKROptionsProvider):
@@ -94,7 +113,30 @@ class OptionChains:
         """Async variant of get_raw."""
         provider = self._resolve_provider()
         try:
-            return await provider.get_chain_async(symbol, expiry, exchange)
+            quotes = await provider.get_chain_async(symbol, expiry, exchange)
+            # If IBKR returned quotes but none have usable pricing (common for
+            # far-dated VIX options where TWS snapshot returns NaN), silently
+            # fall back to the free delayed-quote sources which typically have
+            # prev_day_close / last_trade_price for all listed strikes.
+            from ibkr_eda.options.ibkr_provider import IBKROptionsProvider
+            if isinstance(provider, IBKROptionsProvider) and quotes:
+                has_price = any(
+                    (q.bid is not None and q.bid > 0)
+                    or (q.ask is not None and q.ask > 0)
+                    or (q.mid is not None and q.mid > 0)
+                    or (q.last is not None and q.last > 0)
+                    for q in quotes
+                )
+                if not has_price:
+                    logger.info(
+                        "IBKR returned %d quotes for %s %s but none have pricing "
+                        "— falling back to free sources.",
+                        len(quotes), symbol, expiry,
+                    )
+                    from ibkr_eda.options.fallback_provider import FallbackOptionsProvider
+                    fb = FallbackOptionsProvider(**self._fallback_kwargs)
+                    return await fb.get_chain_async(symbol, expiry, exchange)
+            return quotes
         except Exception as exc:
             from ibkr_eda.options.ibkr_provider import IBKROptionsProvider
             if isinstance(provider, IBKROptionsProvider):
