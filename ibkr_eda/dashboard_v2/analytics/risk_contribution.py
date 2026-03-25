@@ -43,7 +43,7 @@ def compute_risk_contribution(
     marginal = cov @ w / port_vol
     # Component risk contribution
     component = w * marginal
-    # Percentage contribution (share of total portfolio variance)
+    # Percentage contribution (share of total portfolio volatility)
     total_rc = component.sum()
     pct = component / total_rc if total_rc > 0 else component
 

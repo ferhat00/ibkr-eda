@@ -19,9 +19,6 @@ def test_enrich_per_row_fallbacks():
 
     result = VIXData._enrich(df, 100_000)
     mids = result["mid"].tolist()
-    print("Mid values after enrichment:")
-    for s, m in zip(result["strike"], mids):
-        print(f"  Strike {s:.0f}: mid={m}")
 
     # Strike 15: ITM intrinsic = 25-15 = 10
     assert mids[0] == 10.0, f"Expected 10.0, got {mids[0]}"
@@ -37,9 +34,3 @@ def test_enrich_per_row_fallbacks():
     # Derived columns should also be populated
     assert result["cost_per_contract"].notna().all()
     assert result["breakeven_vix"].notna().all()
-
-    print("All enrichment tests passed!")
-
-
-if __name__ == "__main__":
-    test_enrich_per_row_fallbacks()

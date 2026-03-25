@@ -482,7 +482,7 @@ class IBKROptionsProvider:
             bid=ticker.bid if ticker.bid == ticker.bid else None,
             ask=ticker.ask if ticker.ask == ticker.ask else None,
             mid=mid_price(ticker.bid, ticker.ask),
-            volume=int(ticker.volume) if ticker.volume == ticker.volume else None,
+            volume=int(ticker.volume) if (ticker.volume is not None and ticker.volume == ticker.volume) else None,
             open_interest=None,
             implied_vol=mg.impliedVol if mg else None,
             delta=mg.delta if mg else None,
