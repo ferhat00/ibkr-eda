@@ -73,7 +73,13 @@ class IBKRClient:
                 timeout=self.config.timeout,
             )
             self.ib.reqMarketDataType(self.config.market_data_type)
-            await self.ib.reqPositionsAsync()
+            try:
+                await self.ib.reqPositionsAsync()
+            except Exception as exc:
+                logger.warning(
+                    "Connected to IB Gateway but failed to prefetch positions: %s",
+                    exc,
+                )
             logger.info(
                 "Connected to IB Gateway at %s:%s (market data type %d)",
                 self.config.host,

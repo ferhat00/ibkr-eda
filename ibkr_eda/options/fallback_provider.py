@@ -60,11 +60,11 @@ _VALID_SOURCES = {"yfinance", "cboe", "tradier", "barchart"}
 
 
 class FallbackOptionsProvider:
-    """Options data from CBOE delayed JSON, yfinance, or Tradier sandbox.
+    """Options data from CBOE delayed JSON, yfinance, Tradier sandbox, or Barchart.
 
-    Data sources are tried in order: CBOE → yfinance → Tradier (unless
-    *source* is specified, in which case only that backend is used).
-    Results are cached with a configurable TTL.
+    Data sources are tried in order: CBOE → yfinance → Tradier (if token) →
+    Barchart (unless *source* is specified, in which case only that backend is
+    used).  Results are cached with a configurable TTL.
 
     Parameters
     ----------
@@ -74,8 +74,9 @@ class FallbackOptionsProvider:
     cache_ttl:
         Cache time-to-live in seconds (default 300).
     source:
-        Pin a specific data backend: ``'yfinance'``, ``'cboe'``, or
-        ``'tradier'``.  ``None`` (default) tries all three in order.
+        Pin a specific data backend: ``'yfinance'``, ``'cboe'``,
+        ``'tradier'``, or ``'barchart'``.  ``None`` (default) tries all
+        four in order.
     """
 
     def __init__(
@@ -911,7 +912,7 @@ class FallbackOptionsProvider:
         cache_key = f"chain:{symbol}:{exp_ib}:{self._source}"
         cached = self._get_cached(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return self._apply_strike_filter(cached, strike_range, max_strikes)  # type: ignore[arg-type]
 
         errors: list[str] = []
         # Track all quote sets from sources that returned data but lacked

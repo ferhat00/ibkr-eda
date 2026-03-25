@@ -66,6 +66,12 @@ IBKR_FLEX_QUERY_ID=your_query_id_here
 
 # Options fallback providers (all optional)
 TRADIER_TOKEN=your_tradier_sandbox_token  # free at developer.tradier.com
+
+# Options behavior (all optional)
+OPTIONS_CACHE_TTL=300                      # seconds to cache options chains/Greeks
+
+# IBKR market data type (TWS "marketDataType"; optional)
+IBKR_MARKET_DATA_TYPE=REALTIME             # allowed: REALTIME, FROZEN, DELAYED, DELAYED_FROZEN
 ```
 
 ### Setting up Flex Web Service credentials
@@ -165,15 +171,17 @@ The notebook fetches via Flex, merges with any existing CSV, deduplicates on `ex
 
 ## Options
 
-The `ibkr_eda.options` module provides option chains, Greeks, and IV surfaces. It automatically uses your live IBKR TWS connection when available and transparently falls back to free public data sources (yfinance → CBOE delayed quotes → Tradier sandbox → Barchart) when TWS is unavailable or disconnects.
+The `ibkr_eda.options` module provides option chains, Greeks, and IV surfaces. It automatically uses your live IBKR TWS connection when available and transparently falls back to free public data sources (CBOE delayed quotes → yfinance → Tradier sandbox → Barchart) when TWS is unavailable or disconnects.
 
 ```python
 from ibkr_eda import IBKR
 
 ib = IBKR()  # or IBKR(auto_connect=False) for offline use
 
-# Option chain
-chain_df = ib.options.get("AAPL", expiry="2025-06-20")
+# Option chain (OptionChainData with separate calls/puts DataFrames)
+chain = ib.options.get("AAPL", expiry="2025-06-20")
+calls_df = chain.calls
+puts_df = chain.puts
 
 # All expirations
 expiries = ib.options.get_expirations("AAPL")
@@ -222,14 +230,16 @@ from ibkr_eda.hedging import VIXData, ScenarioEngine, HedgeAdvisor
 
 # 1. Fetch and enrich VIX call options (no TWS required)
 vix = VIXData()                        # uses free fallback data sources
-calls_df = vix.get()                   # DataFrame with bid, ask, greeks, moneyness, payoff ratios
+calls_df = vix.get_calls()             # DataFrame with bid, ask, greeks, moneyness, payoff ratios
+term_structure = vix.get_term_structure(portfolio_value=500_000)  # VIX futures / term structure snapshot (portfolio_value required)
 
 # 2. Build scenario engine
 engine = ScenarioEngine(
     portfolio_value=500_000,
+    portfolio_beta=1.0,
     current_vix=18.0,
 )
-scenarios = engine.run_scenarios()     # DataFrame: spx_drawdown → portfolio_loss, vix_estimate, hedge_payoff
+scenarios = engine.stress_table()      # DataFrame: spx_drawdown → portfolio_loss, vix_estimate, hedge_payoff
 
 # 3. Select optimal hedge
 advisor = HedgeAdvisor(calls_df, engine, current_vix=18.0)
@@ -288,7 +298,9 @@ snap = ib.snapshot.get(conids=[265598])  # AAPL
 history = ib.history.get(conid=265598, period="1m", bar="1d")
 
 # Options (auto-selects IBKR or free fallback)
-chain_df = ib.options.get("AAPL", expiry="2025-06-20")
+chain = ib.options.get("AAPL", expiry="2025-06-20")
+calls_df = chain.calls
+puts_df  = chain.puts
 greeks_df = ib.greeks.get("AAPL", expiry="2025-06-20", strike=200.0, right="C")
 iv_df     = ib.vol_surface.get("SPY")
 ```
