@@ -1,10 +1,12 @@
 # ibkr-eda
 
-Exploratory data analysis toolkit for Interactive Brokers — featuring a professional trade dashboard and a Python package for accessing IBKR data via TWS and the Flex Web Service.
+Exploratory data analysis toolkit for Interactive Brokers — featuring a professional trade dashboard, an options data layer, a VIX portfolio-insurance toolkit, and a Python package for accessing IBKR data via TWS and the Flex Web Service.
 
 ## Features
 
 - **Trade Dashboard** — interactive Flask web app for portfolio-level trade analysis with filters, charts, and performance metrics
+- **Options Module** — option chains, Greeks, and IV surfaces with automatic IBKR TWS / free-data fallback (yfinance, CBOE, Tradier, Barchart)
+- **VIX Hedging** — scenario-based drawdown analysis, VIX call enrichment, and optimal hedge selection across three risk profiles
 - **Flex Web Service** — fetch years of execution history without a live IB Gateway connection
 - **TWS API** — live executions, open orders, positions, P&L, market data, and contract search via `ib_async`
 
@@ -32,8 +34,17 @@ pip install -e ".[dashboard]"
 # With Flex Web Service support
 pip install -e ".[flex]"
 
+# With free options data (yfinance fallback)
+pip install -e ".[options]"
+
+# With VIX hedge notebook (plotly + ipywidgets + yfinance)
+pip install -e ".[hedge]"
+
+# Advanced dashboard (Dash, Plotly, pyfolio, riskfolio)
+pip install -e ".[dashboard-v2]"
+
 # Everything
-pip install -e ".[dashboard,flex,dev]"
+pip install -e ".[dashboard,flex,options,hedge,dev]"
 ```
 
 ---
@@ -52,6 +63,9 @@ IBKR_ACCOUNT_ID=U1234567    # optional; auto-detected if omitted
 # Flex Web Service (required for dashboard live fetch and long history)
 IBKR_FLEX_TOKEN=your_token_here
 IBKR_FLEX_QUERY_ID=your_query_id_here
+
+# Options fallback providers (all optional)
+TRADIER_TOKEN=your_tradier_sandbox_token  # free at developer.tradier.com
 ```
 
 ### Setting up Flex Web Service credentials
@@ -92,6 +106,16 @@ If you installed with `pip install -e ".[dashboard]"`, you can also use the shor
 ibkr-dashboard
 ibkr-dashboard --source live
 ```
+
+There is also an advanced Dash-based dashboard (v2). Start it with:
+
+```bash
+python -m ibkr_eda.dashboard_v2
+# or
+ibkr-dashboard-v2
+```
+
+Then open **http://127.0.0.1:8050** in your browser.
 
 ### Dashboard sections
 
@@ -139,6 +163,93 @@ The notebook fetches via Flex, merges with any existing CSV, deduplicates on `ex
 
 ---
 
+## Options
+
+The `ibkr_eda.options` module provides option chains, Greeks, and IV surfaces. It automatically uses your live IBKR TWS connection when available and transparently falls back to free public data sources (yfinance → CBOE delayed quotes → Tradier sandbox → Barchart) when TWS is unavailable or disconnects.
+
+```python
+from ibkr_eda import IBKR
+
+ib = IBKR()  # or IBKR(auto_connect=False) for offline use
+
+# Option chain
+chain_df = ib.options.get("AAPL", expiry="2025-06-20")
+
+# All expirations
+expiries = ib.options.get_expirations("AAPL")
+
+# Greeks for a single contract
+greeks_df = ib.greeks.get("AAPL", expiry="2025-06-20", strike=200.0, right="C")
+
+# Implied volatility surface (strikes × expiries)
+iv_df = ib.vol_surface.get("SPY")
+
+# ATM term structure
+term_df = ib.vol_surface.get_term_structure("SPY")
+```
+
+### Using the fallback provider directly (no TWS)
+
+```python
+from ibkr_eda.options.chain import OptionChains
+from ibkr_eda.options.fallback_provider import FallbackOptionsProvider
+
+# Use a specific source
+chains = OptionChains(provider=FallbackOptionsProvider(source="cboe"))
+df = chains.get("VIX", expiry="2025-06-18")
+
+# Auto-cascade through all free sources
+chains = OptionChains(provider=FallbackOptionsProvider())  # tries yfinance → cboe → tradier → barchart
+```
+
+---
+
+## VIX Hedging
+
+The `ibkr_eda.hedging` module provides a scenario-based VIX portfolio-insurance workflow. It fetches and enriches VIX call options, models S&P 500 drawdown scenarios and the resulting VIX spike, then recommends optimal hedges across three risk profiles.
+
+### Notebooks
+
+| Notebook | Description |
+|---|---|
+| `notebooks/02_options_explorer.ipynb` | Interactive options chain and Greeks explorer |
+| `notebooks/03_vix_hedge.ipynb` | Full VIX hedge analysis: fetch calls, model scenarios, select hedges |
+
+### Programmatic usage
+
+```python
+from ibkr_eda.hedging import VIXData, ScenarioEngine, HedgeAdvisor
+
+# 1. Fetch and enrich VIX call options (no TWS required)
+vix = VIXData()                        # uses free fallback data sources
+calls_df = vix.get()                   # DataFrame with bid, ask, greeks, moneyness, payoff ratios
+
+# 2. Build scenario engine
+engine = ScenarioEngine(
+    portfolio_value=500_000,
+    current_vix=18.0,
+)
+scenarios = engine.run_scenarios()     # DataFrame: spx_drawdown → portfolio_loss, vix_estimate, hedge_payoff
+
+# 3. Select optimal hedge
+advisor = HedgeAdvisor(calls_df, engine, current_vix=18.0)
+rec = advisor.recommend(profile="moderate")   # or "conservative" / "aggressive"
+print(rec)  # strike, expiry, contracts_needed, cost_bps, payoff_ratio_40, …
+
+# Get all three profiles at once
+all_recs = advisor.recommend_all()    # dict[str, pd.Series | None]
+```
+
+### Hedge profiles
+
+| Profile | Target drawdown | OTM range | Max DTE | Max cost |
+|---|---|---|---|---|
+| `conservative` | 20% | ATM – 10% OTM | 20–90 d | 75 bps |
+| `moderate` | 30% | 5% – 20% OTM | 30–120 d | 50 bps |
+| `aggressive` | 40% | 15% – 40% OTM | 45–180 d | 25 bps |
+
+---
+
 ## Python Package
 
 ### Flex Web Service (no live connection required)
@@ -175,6 +286,11 @@ snap = ib.snapshot.get(conids=[265598])  # AAPL
 
 # Historical bars
 history = ib.history.get(conid=265598, period="1m", bar="1d")
+
+# Options (auto-selects IBKR or free fallback)
+chain_df = ib.options.get("AAPL", expiry="2025-06-20")
+greeks_df = ib.greeks.get("AAPL", expiry="2025-06-20", strike=200.0, right="C")
+iv_df     = ib.vol_surface.get("SPY")
 ```
 
 ### Async usage (Jupyter / Python 3.14+)
@@ -218,14 +334,30 @@ ibkr-eda/
 ├── data/                        # Local trade CSVs (gitignored)
 ├── notebooks/
 │   ├── 00_connection_test.ipynb # TWS connectivity smoke-test
-│   └── 01_trade_eda.ipynb       # Full EDA: fetch, persist, and analyse
+│   ├── 01_trade_eda.ipynb       # Full EDA: fetch, persist, and analyse
+│   ├── 02_options_explorer.ipynb# Option chain & Greeks explorer
+│   └── 03_vix_hedge.ipynb       # VIX portfolio-insurance workflow
 └── ibkr_eda/
-    ├── dashboard/               # Flask trade dashboard
+    ├── dashboard/               # Flask trade dashboard (v1)
     │   ├── app.py               # Flask app factory + API routes
     │   ├── data_loader.py       # CSV/Flex loading, derived columns
     │   ├── metrics.py           # Performance metric computations
     │   ├── templates/           # Jinja2 HTML templates
     │   └── static/              # JavaScript (dashboard.js)
+    ├── dashboard_v2/            # Advanced Dash dashboard (v2)
+    ├── options/                 # Options data module
+    │   ├── chain.py             # OptionChains — chains with IBKR/fallback routing
+    │   ├── greeks.py            # Greeks — single/multi-contract Greeks
+    │   ├── surface.py           # VolSurface — IV surface builder
+    │   ├── ibkr_provider.py     # IBKR TWS options provider
+    │   ├── fallback_provider.py # Free fallback: yfinance/CBOE/Tradier/Barchart
+    │   ├── provider.py          # Abstract provider protocol + data types
+    │   └── utils.py             # OCC parsing, strike filtering, DTE helpers
+    ├── hedging/                 # VIX portfolio-insurance module
+    │   ├── vix_data.py          # VIXData — fetch and enrich VIX calls
+    │   ├── scenarios.py         # ScenarioEngine — drawdown × VIX models
+    │   ├── recommendations.py   # HedgeAdvisor — profile-based hedge selection
+    │   └── config.py            # Constants, stress events, hedge profiles
     ├── trades/
     │   ├── flex.py              # FlexTrades — Flex Web Service
     │   ├── executions.py        # Recent executions via TWS
