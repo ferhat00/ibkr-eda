@@ -106,16 +106,18 @@ DEMO_PORTFOLIO: dict[str, dict] = {
 # ---------------------------------------------------------------------------
 
 PLOTLY_LAYOUT = dict(
-    template="plotly_dark",
+    template="plotly_white",
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(color="black"),
+    title_font=dict(color="black"),
 )
 
 COLORS = {
-    "primary": "#00d4ff",
-    "success": "#00ff88",
-    "danger": "#ff6b6b",
-    "warning": "#ffd93d",
-    "accent": "#bb86fc",
-    "gray": "#888888",
+    "primary": "#0077bb",
+    "success": "#009955",
+    "danger": "#cc3333",
+    "warning": "#cc8800",
+    "accent": "#7733cc",
+    "gray": "#555555",
 }

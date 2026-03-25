@@ -171,6 +171,33 @@ class VIXData:
 
         return pd.DataFrame(rows)
 
+    async def get_term_structure_async(self, portfolio_value: float) -> pd.DataFrame:
+        """Async variant of get_term_structure — required in Jupyter where an event loop is already running."""
+        rows: list[dict] = []
+        for exp in await self.get_expirations_async():
+            try:
+                calls = await self.get_calls_async(exp, portfolio_value)
+                if calls.empty:
+                    continue
+                und = pd.to_numeric(calls["underlying_price"], errors="coerce").iloc[0]
+                if pd.isna(und) or und <= 0:
+                    continue
+                idx = (calls["strike"] - und).abs().idxmin()
+                atm = calls.loc[idx]
+                rows.append({
+                    "expiry": exp,
+                    "days_to_expiry": atm.get("days_to_expiry", days_to_expiry(exp)),
+                    "atm_strike": atm["strike"],
+                    "atm_mid": atm.get("mid", atm.get("last")),
+                    "cost_per_contract": atm.get("cost_per_contract"),
+                    "cost_bps": atm.get("cost_bps"),
+                    "underlying_price": und,
+                })
+            except Exception:
+                logger.debug("Skipping expiry %s in term structure", exp, exc_info=True)
+                continue
+        return pd.DataFrame(rows)
+
     # ------------------------------------------------------------------
     # Enrichment
     # ------------------------------------------------------------------

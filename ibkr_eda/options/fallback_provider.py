@@ -5,15 +5,37 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import urllib.request
 from datetime import date, datetime, timezone
 
 import numpy as np
+import pandas as pd
 
 from ibkr_eda.exceptions import IBKROptionsError
 from ibkr_eda.options.provider import OptionQuote, VolSurfaceData
 from ibkr_eda.options.utils import expiry_to_ib, filter_strikes, mid_price
+
+# OCC-style option symbol: underlying (letters/^) + YYMMDD + C/P + 8-digit strike*1000
+_OCC_RE = re.compile(r'^([A-Z^]+)(\d{6})([CP])(\d{8})$')
+
+
+def _parse_occ_symbol(option_str: str) -> tuple[str, str, str, float] | None:
+    """Parse an OCC option symbol into (underlying, YYYYMMDD, right, strike).
+
+    CBOE encodes all contract details in the symbol, e.g. ``VIX260617C00010000``
+    means VIX, expiry June 17 2026, call, strike $10.00.
+    """
+    m = _OCC_RE.match(option_str.replace(" ", "").upper())
+    if not m:
+        return None
+    underlying, yymmdd, right, strike_str = m.groups()
+    yy = int(yymmdd[:2])
+    century = "19" if yy >= 50 else "20"
+    yyyymmdd = f"{century}{yymmdd}"
+    strike = int(strike_str) / 1000.0
+    return underlying, yyyymmdd, right, strike
 
 logger = logging.getLogger(__name__)
 
@@ -116,44 +138,54 @@ class FallbackOptionsProvider:
     def _cboe_to_quotes(
         self, data: dict, symbol: str, expiry: str | None = None,
     ) -> list[OptionQuote]:
-        """Parse CBOE JSON into OptionQuote list."""
+        """Parse CBOE JSON into OptionQuote list.
+
+        CBOE's delayed-quotes JSON encodes expiry, right, and strike inside
+        the OCC option symbol (e.g. ``VIX260617C00010000``).  There are no
+        separate ``expiration``, ``strike``, or ``option_type`` fields.
+        """
         quotes: list[OptionQuote] = []
         und_price = None
         current_price = data.get("data", {}).get("current_price")
         if current_price:
             und_price = float(current_price)
 
+        target_expiry = expiry_to_ib(expiry) if expiry else None
+
         options = data.get("data", {}).get("options", [])
         for opt in options:
             option_str = opt.get("option", "")
-            # CBOE option symbol format varies; extract expiry from the option string
-            opt_expiry = opt.get("expiration", "")
-            if opt_expiry:
-                # Normalize to YYYYMMDD
-                opt_expiry = opt_expiry.replace("-", "")
+            parsed = _parse_occ_symbol(option_str)
+            if parsed is None:
+                continue
+            _, opt_expiry, right, strike = parsed
 
-            if expiry and opt_expiry != expiry_to_ib(expiry):
+            if target_expiry and opt_expiry != target_expiry:
                 continue
 
-            right = "C" if opt.get("option_type", "").upper().startswith("C") else "P"
-            strike = float(opt.get("strike", 0))
             bid = opt.get("bid")
             ask = opt.get("ask")
             bid = float(bid) if bid is not None else None
             ask = float(ask) if ask is not None else None
+
+            last_raw = opt.get("last_trade_price")
+            last = float(last_raw) if last_raw is not None and float(last_raw) > 0 else None
+
+            iv_raw = opt.get("iv")
+            iv = float(iv_raw) if iv_raw is not None and float(iv_raw) > 0 else None
 
             quotes.append(OptionQuote(
                 symbol=symbol.upper(),
                 expiry=opt_expiry,
                 strike=strike,
                 right=right,
-                last=float(opt["last_sale_price"]) if opt.get("last_sale_price") else None,
+                last=last,
                 bid=bid,
                 ask=ask,
                 mid=mid_price(bid, ask),
                 volume=int(opt["volume"]) if opt.get("volume") else None,
                 open_interest=int(opt["open_interest"]) if opt.get("open_interest") else None,
-                implied_vol=float(opt["iv"]) if opt.get("iv") else None,
+                implied_vol=iv,
                 delta=float(opt["delta"]) if opt.get("delta") else None,
                 gamma=float(opt["gamma"]) if opt.get("gamma") else None,
                 theta=float(opt["theta"]) if opt.get("theta") else None,
@@ -218,22 +250,26 @@ class FallbackOptionsProvider:
 
         for right, df in [("C", chain.calls), ("P", chain.puts)]:
             for _, row in df.iterrows():
-                bid = row.get("bid")
-                ask = row.get("ask")
-                bid = float(bid) if bid is not None else None
-                ask = float(ask) if ask is not None else None
+                bid_raw = row.get("bid")
+                ask_raw = row.get("ask")
+                bid = float(bid_raw) if pd.notna(bid_raw) and float(bid_raw) > 0 else None
+                ask = float(ask_raw) if pd.notna(ask_raw) and float(ask_raw) > 0 else None
+                last_raw = row.get("lastPrice")
+                last = float(last_raw) if pd.notna(last_raw) and float(last_raw) > 0 else None
+                iv_raw = row.get("impliedVolatility")
+                iv = float(iv_raw) if pd.notna(iv_raw) and float(iv_raw) > 0 else None
                 quotes.append(OptionQuote(
                     symbol=symbol.upper(),
                     expiry=exp_ib,
                     strike=float(row["strike"]),
                     right=right,
-                    last=float(row["lastPrice"]) if row.get("lastPrice") else None,
+                    last=last,
                     bid=bid,
                     ask=ask,
                     mid=mid_price(bid, ask),
-                    volume=int(row["volume"]) if row.get("volume") and row["volume"] == row["volume"] else None,
-                    open_interest=int(row["openInterest"]) if row.get("openInterest") and row["openInterest"] == row["openInterest"] else None,
-                    implied_vol=float(row["impliedVolatility"]) if row.get("impliedVolatility") else None,
+                    volume=int(row["volume"]) if pd.notna(row.get("volume")) and row["volume"] > 0 else None,
+                    open_interest=int(row["openInterest"]) if pd.notna(row.get("openInterest")) and row["openInterest"] > 0 else None,
+                    implied_vol=iv,
                     delta=None,
                     gamma=None,
                     theta=None,
@@ -335,9 +371,9 @@ class FallbackOptionsProvider:
                 options = data.get("data", {}).get("options", [])
                 expiries: set[str] = set()
                 for opt in options:
-                    exp = opt.get("expiration", "")
-                    if exp:
-                        expiries.add(exp.replace("-", ""))
+                    parsed = _parse_occ_symbol(opt.get("option", ""))
+                    if parsed is not None:
+                        expiries.add(parsed[1])  # YYYYMMDD from symbol
                 result = sorted(expiries)
                 if result:
                     result = self._filter_future_expiries(result)

@@ -96,44 +96,50 @@ class IBKROptionsProvider:
 
     def _get_strikes_for_expiry(
         self, symbol: str, expiry: str, exchange: str = "SMART",
-    ) -> tuple[list[float], str | None]:
-        """Return available strikes and tradingClass for a given expiry."""
+    ) -> tuple[list[float], str | None, str]:
+        """Return available strikes, tradingClass, and exchange for a given expiry."""
         all_params = self._get_opt_params(symbol)
         filtered = filter_opt_params(all_params, symbol, exchange)
         exp = expiry_to_ib(expiry)
         strikes: set[float] = set()
         trading_class: str | None = None
+        resolved_exchange: str = exchange
         for p in filtered:
             if exp in p.expirations:
                 strikes.update(p.strikes)
                 trading_class = p.tradingClass
+                resolved_exchange = p.exchange
         # Fallback: expiry may belong to a different tradingClass (e.g. VIXW)
         if not strikes:
             for p in all_params:
                 if exp in p.expirations:
                     strikes.update(p.strikes)
                     trading_class = p.tradingClass
-        return sorted(strikes), trading_class
+                    resolved_exchange = p.exchange
+        return sorted(strikes), trading_class, resolved_exchange
 
     async def _get_strikes_for_expiry_async(
         self, symbol: str, expiry: str, exchange: str = "SMART",
-    ) -> tuple[list[float], str | None]:
+    ) -> tuple[list[float], str | None, str]:
         all_params = await self._get_opt_params_async(symbol)
         filtered = filter_opt_params(all_params, symbol, exchange)
         exp = expiry_to_ib(expiry)
         strikes: set[float] = set()
         trading_class: str | None = None
+        resolved_exchange: str = exchange
         for p in filtered:
             if exp in p.expirations:
                 strikes.update(p.strikes)
                 trading_class = p.tradingClass
+                resolved_exchange = p.exchange
         # Fallback: expiry may belong to a different tradingClass (e.g. VIXW)
         if not strikes:
             for p in all_params:
                 if exp in p.expirations:
                     strikes.update(p.strikes)
                     trading_class = p.tradingClass
-        return sorted(strikes), trading_class
+                    resolved_exchange = p.exchange
+        return sorted(strikes), trading_class, resolved_exchange
 
     def get_chain(
         self,
@@ -152,7 +158,7 @@ class IBKROptionsProvider:
         max_strikes : int
             Max strikes around ATM when *strike_range* is ``None``.
         """
-        strikes, trading_class = self._get_strikes_for_expiry(symbol, expiry, exchange)
+        strikes, trading_class, resolved_exchange = self._get_strikes_for_expiry(symbol, expiry, exchange)
         if not strikes:
             raise IBKROptionsError(f"No strikes found for {symbol} {expiry}")
 
@@ -184,7 +190,7 @@ class IBKROptionsProvider:
             for right in ("C", "P"):
                 contracts.append(
                     build_option_contract(
-                        symbol, expiry, strike, right, exchange,
+                        symbol, expiry, strike, right, resolved_exchange,
                         trading_class=trading_class,
                     )
                 )
@@ -222,7 +228,7 @@ class IBKROptionsProvider:
         strike_range: tuple[float, float] | None = None,
         max_strikes: int = 20,
     ) -> list[OptionQuote]:
-        strikes, trading_class = await self._get_strikes_for_expiry_async(symbol, expiry, exchange)
+        strikes, trading_class, resolved_exchange = await self._get_strikes_for_expiry_async(symbol, expiry, exchange)
         if not strikes:
             raise IBKROptionsError(f"No strikes found for {symbol} {expiry}")
 
@@ -255,7 +261,7 @@ class IBKROptionsProvider:
             for right in ("C", "P"):
                 contracts.append(
                     build_option_contract(
-                        symbol, expiry, strike, right, exchange,
+                        symbol, expiry, strike, right, resolved_exchange,
                         trading_class=trading_class,
                     )
                 )
